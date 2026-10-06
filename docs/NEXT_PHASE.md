@@ -1,11 +1,15 @@
 # Phase 3 target
 
-After the first successful VLESS/Reality connection on a real device:
+Phase 3 begins after the first successful VLESS/Reality connection is confirmed on a real Android device.
 
-1. Add Android network-change monitoring and in-place Xray restart.
-2. Add per-app split tunneling UI using `addAllowedApplication` / `addDisallowedApplication`.
-3. Validate IPv6 routing/leak behavior across Wi-Fi and cellular networks.
-4. Add Android-native logs to KarinCore's Logs tab.
-5. Replace the desktop titlebar/window controls in mobile layout.
-6. Add WireGuard transport/chaining.
-7. Add OpenVPN transport/chaining last.
+Planned work:
+
+1. Android network-change monitoring and in-place Xray restart.
+2. Per-app split tunneling UI based on `addAllowedApplication` / `addDisallowedApplication`.
+3. IPv6 routing and leak validation across Wi-Fi and cellular networks.
+4. Android-native log integration for the KarinCore Logs tab.
+5. Mobile-specific replacement for desktop titlebar and window controls.
+6. WireGuard transport/chaining.
+7. OpenVPN transport/chaining.
+
+The order may change when device testing exposes platform-specific blockers.
