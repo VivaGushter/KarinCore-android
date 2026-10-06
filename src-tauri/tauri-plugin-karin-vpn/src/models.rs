@@ -93,3 +93,25 @@ pub struct SaveDocumentResult {
 pub struct OpenSettingsResult {
     pub opened: bool,
 }
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FetchTextRequest {
+    pub url: String,
+    #[serde(default = "default_fetch_timeout_ms")]
+    pub timeout_ms: u64,
+    #[serde(default = "default_fetch_max_bytes")]
+    pub max_bytes: u64,
+}
+
+fn default_fetch_timeout_ms() -> u64 { 20_000 }
+fn default_fetch_max_bytes() -> u64 { 8 * 1024 * 1024 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FetchTextResult {
+    pub status: u16,
+    pub final_url: String,
+    pub content: String,
+}

@@ -572,7 +572,14 @@ async function saveNewLink() {
         btnSave.disabled = true;
         
         try {
-            const result = await invoke<SubscriptionResult>('fetch_subscription', { url: input });
+            const subscriptionRequest = invoke<SubscriptionResult>('fetch_subscription', { url: input });
+            const uiWatchdog = new Promise<never>((_, reject) => {
+                window.setTimeout(
+                    () => reject(new Error('SUBSCRIPTION_UI_TIMEOUT')),
+                    25_000
+                );
+            });
+            const result = await Promise.race([subscriptionRequest, uiWatchdog]);
             const domain = new URL(input).hostname;
             const newGroupId = 'grp_' + Date.now();
             appGroups.push({ id: newGroupId, name: domain, pinned: false, isOpen: true });
@@ -587,7 +594,7 @@ async function saveNewLink() {
             typeKarinMessage('karin_add_link');
         } catch (error) {
             const message = String(error);
-            if (message.includes('SUBSCRIPTION_TIMEOUT')) {
+            if (message.includes('SUBSCRIPTION_UI_TIMEOUT') || message.includes('SUBSCRIPTION_TIMEOUT')) {
                 alert(t('err_subscription_timeout'));
             } else if (message.includes('SUBSCRIPTION_CONNECT')) {
                 alert(`${t('err_subscription_connect')}\n\n${message}`);

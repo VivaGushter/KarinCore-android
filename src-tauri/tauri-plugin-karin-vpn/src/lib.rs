@@ -2,7 +2,7 @@ mod error;
 mod models;
 
 pub use error::{Error, Result};
-pub use models::{ClearLogsResult, InstalledApp, InstalledAppsResult, LogsResult, PrepareResult, OpenSettingsResult, SaveDocumentRequest, SaveDocumentResult, StartRequest, VpnStatus};
+pub use models::{ClearLogsResult, InstalledApp, InstalledAppsResult, LogsResult, PrepareResult, FetchTextRequest, FetchTextResult, OpenSettingsResult, SaveDocumentRequest, SaveDocumentResult, StartRequest, VpnStatus};
 
 use tauri::{Manager, Runtime, plugin::TauriPlugin};
 
@@ -93,6 +93,18 @@ impl<R: Runtime> KarinVpn<R> {
     }
 
     #[cfg(target_os = "android")]
+    pub fn fetch_text(&self, request: FetchTextRequest) -> Result<FetchTextResult> {
+        self.mobile_plugin_handle
+            .run_mobile_plugin("fetchText", request)
+            .map_err(Error::from)
+    }
+
+    #[cfg(not(target_os = "android"))]
+    pub fn fetch_text(&self, _request: FetchTextRequest) -> Result<FetchTextResult> {
+        Err(Error::UnsupportedPlatform)
+    }
+
+    #[cfg(target_os = "android")]
     pub fn open_vpn_settings(&self) -> Result<OpenSettingsResult> {
         self.mobile_plugin_handle
             .run_mobile_plugin("openVpnSettings", ())
@@ -173,6 +185,14 @@ async fn save_document<R: Runtime>(
 }
 
 #[tauri::command]
+async fn fetch_text<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    request: FetchTextRequest,
+) -> Result<FetchTextResult> {
+    app.karin_vpn().fetch_text(request)
+}
+
+#[tauri::command]
 async fn open_vpn_settings<R: Runtime>(app: tauri::AppHandle<R>) -> Result<OpenSettingsResult> {
     app.karin_vpn().open_vpn_settings()
 }
@@ -201,6 +221,6 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![prepare, start, list_apps, logs, clear_logs, save_document, open_vpn_settings, stop, status])
+        .invoke_handler(tauri::generate_handler![prepare, start, list_apps, logs, clear_logs, save_document, fetch_text, open_vpn_settings, stop, status])
         .build()
 }

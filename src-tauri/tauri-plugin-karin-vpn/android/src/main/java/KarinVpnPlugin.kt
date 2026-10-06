@@ -9,6 +9,14 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
+import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
+import java.net.URL
+import java.util.concurrent.Executors
+import java.util.zip.GZIPInputStream
+import javax.net.ssl.SSLException
 import androidx.activity.result.ActivityResult
 import androidx.core.content.ContextCompat
 import app.tauri.annotation.ActivityCallback
@@ -35,9 +43,17 @@ class SaveDocumentArgs {
     var mimeType: String = "application/json"
 }
 
+@InvokeArg
+class FetchTextArgs {
+    lateinit var url: String
+    var timeoutMs: Long = 20_000
+    var maxBytes: Long = 8L * 1024L * 1024L
+}
+
 @TauriPlugin
 class KarinVpnPlugin(private val activity: Activity) : Plugin(activity) {
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val networkExecutor = Executors.newCachedThreadPool()
     private var pendingDocumentContent: String? = null
 
     @Command
@@ -244,6 +260,128 @@ class KarinVpnPlugin(private val activity: Activity) : Plugin(activity) {
             Activity.RESULT_CANCELED -> invoke.reject("Отменено")
             else -> invoke.reject("Failed to save document")
         }
+    }
+
+    @Command
+    fun fetchText(invoke: Invoke) {
+        val args = try {
+            invoke.parseArgs(FetchTextArgs::class.java)
+        } catch (ex: Exception) {
+            invoke.reject(ex.message ?: "SUBSCRIPTION_NATIVE_ARGS")
+            return
+        }
+
+        if (args.url.isBlank()) {
+            invoke.reject("SUBSCRIPTION_NATIVE_URL_EMPTY")
+            return
+        }
+
+        networkExecutor.execute {
+            try {
+                val result = fetchTextBlocking(
+                    initialUrl = args.url,
+                    timeoutMs = args.timeoutMs.coerceIn(1_000, 60_000).toInt(),
+                    maxBytes = args.maxBytes.coerceIn(1_024, 16L * 1024L * 1024L)
+                )
+
+                invoke.resolve(JSObject().apply {
+                    put("status", result.status)
+                    put("finalUrl", result.finalUrl)
+                    put("content", result.content)
+                })
+            } catch (ex: SocketTimeoutException) {
+                invoke.reject("SUBSCRIPTION_TIMEOUT: Android HTTP timeout")
+            } catch (ex: SSLException) {
+                invoke.reject("SUBSCRIPTION_TLS: ${ex.message ?: "TLS validation failed"}")
+            } catch (ex: Exception) {
+                invoke.reject("SUBSCRIPTION_NATIVE: ${ex.javaClass.simpleName}: ${ex.message ?: "request failed"}")
+            }
+        }
+    }
+
+    private data class NativeFetchResult(
+        val status: Int,
+        val finalUrl: String,
+        val content: String
+    )
+
+    private fun fetchTextBlocking(
+        initialUrl: String,
+        timeoutMs: Int,
+        maxBytes: Long
+    ): NativeFetchResult {
+        var current = URL(initialUrl)
+        var redirects = 0
+
+        while (true) {
+            val connection = (current.openConnection() as HttpURLConnection).apply {
+                instanceFollowRedirects = false
+                connectTimeout = minOf(timeoutMs, 8_000)
+                readTimeout = timeoutMs
+                requestMethod = "GET"
+                setRequestProperty("User-Agent", "KarinCore-Android/0.1")
+                setRequestProperty("Accept", "*/*")
+                setRequestProperty("Accept-Encoding", "gzip")
+                useCaches = false
+            }
+
+            try {
+                val status = connection.responseCode
+
+                if (status in 300..399) {
+                    val location = connection.getHeaderField("Location")
+                        ?: throw IllegalStateException("Redirect without Location header")
+                    redirects += 1
+                    if (redirects > 5) {
+                        throw IllegalStateException("SUBSCRIPTION_REDIRECT_LIMIT")
+                    }
+                    current = URL(current, location)
+                    continue
+                }
+
+                val source: InputStream = if (status >= 400) {
+                    connection.errorStream ?: connection.inputStream
+                } else {
+                    connection.inputStream
+                }
+
+                val contentEncoding = connection.getHeaderField("Content-Encoding").orEmpty()
+                val input = if (contentEncoding.equals("gzip", ignoreCase = true)) {
+                    GZIPInputStream(source)
+                } else {
+                    source
+                }
+
+                val body = input.use { readBounded(it, maxBytes) }
+                    .toString(Charsets.UTF_8)
+
+                return NativeFetchResult(
+                    status = status,
+                    finalUrl = current.toString(),
+                    content = body
+                )
+            } finally {
+                connection.disconnect()
+            }
+        }
+    }
+
+    private fun readBounded(input: InputStream, maxBytes: Long): ByteArray {
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(16 * 1024)
+        var total = 0L
+
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            total += count
+            if (total > maxBytes) {
+                throw IllegalStateException("SUBSCRIPTION_TOO_LARGE")
+            }
+            output.write(buffer, 0, count)
+        }
+
+        return output.toByteArray()
     }
 
     @Command
