@@ -400,6 +400,18 @@ class KarinVpnPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     @Command
+    fun deviceInfo(invoke: Invoke) {
+        invoke.resolve(JSObject().apply {
+            put("manufacturer", android.os.Build.MANUFACTURER.orEmpty())
+            put("brand", android.os.Build.BRAND.orEmpty())
+            put("model", android.os.Build.MODEL.orEmpty())
+            put("device", android.os.Build.DEVICE.orEmpty())
+            put("androidRelease", android.os.Build.VERSION.RELEASE.orEmpty())
+            put("sdkInt", android.os.Build.VERSION.SDK_INT)
+        })
+    }
+
+    @Command
     fun logs(invoke: Invoke) {
         invoke.resolve(JSObject().apply {
             put("content", KarinVpnService.logsSnapshot())
@@ -425,6 +437,8 @@ class KarinVpnPlugin(private val activity: Activity) : Plugin(activity) {
         put("reconnecting", KarinVpnService.reconnecting)
         put("alwaysOn", KarinVpnService.alwaysOn)
         put("lockdown", KarinVpnService.lockdown)
+        put("appRoutingMode", KarinVpnService.appliedAppRoutingMode)
+        put("appPackageCount", KarinVpnService.appliedAppPackageCount)
         put("tunFd", KarinVpnService.tunFd.takeIf { it >= 0 })
         put("coreVersion", KarinVpnService.coreVersion)
         put("lastError", KarinVpnService.lastError)

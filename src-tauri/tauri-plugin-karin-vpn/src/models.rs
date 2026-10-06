@@ -115,3 +115,15 @@ pub struct FetchTextResult {
     pub final_url: String,
     pub content: String,
 }
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceInfoResult {
+    pub manufacturer: String,
+    pub brand: String,
+    pub model: String,
+    pub device: String,
+    pub android_release: String,
+    pub sdk_int: u32,
+}

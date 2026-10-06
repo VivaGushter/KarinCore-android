@@ -2,7 +2,7 @@ mod error;
 mod models;
 
 pub use error::{Error, Result};
-pub use models::{ClearLogsResult, InstalledApp, InstalledAppsResult, LogsResult, PrepareResult, FetchTextRequest, FetchTextResult, OpenSettingsResult, SaveDocumentRequest, SaveDocumentResult, StartRequest, VpnStatus};
+pub use models::{DeviceInfoResult, ClearLogsResult, InstalledApp, InstalledAppsResult, LogsResult, PrepareResult, FetchTextRequest, FetchTextResult, OpenSettingsResult, SaveDocumentRequest, SaveDocumentResult, StartRequest, VpnStatus};
 
 use tauri::{Manager, Runtime, plugin::TauriPlugin};
 
@@ -105,6 +105,18 @@ impl<R: Runtime> KarinVpn<R> {
     }
 
     #[cfg(target_os = "android")]
+    pub fn device_info(&self) -> Result<DeviceInfoResult> {
+        self.mobile_plugin_handle
+            .run_mobile_plugin("deviceInfo", ())
+            .map_err(Error::from)
+    }
+
+    #[cfg(not(target_os = "android"))]
+    pub fn device_info(&self) -> Result<DeviceInfoResult> {
+        Err(Error::UnsupportedPlatform)
+    }
+
+    #[cfg(target_os = "android")]
     pub fn open_vpn_settings(&self) -> Result<OpenSettingsResult> {
         self.mobile_plugin_handle
             .run_mobile_plugin("openVpnSettings", ())
@@ -193,6 +205,11 @@ async fn fetch_text<R: Runtime>(
 }
 
 #[tauri::command]
+async fn device_info<R: Runtime>(app: tauri::AppHandle<R>) -> Result<DeviceInfoResult> {
+    app.karin_vpn().device_info()
+}
+
+#[tauri::command]
 async fn open_vpn_settings<R: Runtime>(app: tauri::AppHandle<R>) -> Result<OpenSettingsResult> {
     app.karin_vpn().open_vpn_settings()
 }
@@ -221,6 +238,6 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![prepare, start, list_apps, logs, clear_logs, save_document, fetch_text, open_vpn_settings, stop, status])
+        .invoke_handler(tauri::generate_handler![prepare, start, list_apps, logs, clear_logs, save_document, fetch_text, device_info, open_vpn_settings, stop, status])
         .build()
 }

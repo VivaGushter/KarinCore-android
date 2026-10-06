@@ -1703,6 +1703,108 @@ fn clear_logs(app: tauri::AppHandle) -> Result<String, String> {
 }
 
 #[cfg(target_os = "android")]
+fn redact_diagnostic_logs(content: &str) -> String {
+    content
+        .lines()
+        .map(|line| {
+            if ["vless://", "vmess://", "trojan://", "ss://"]
+                .iter()
+                .any(|needle| line.contains(needle))
+            {
+                "[REDACTED PROXY URI]".to_string()
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn export_diagnostics(app: tauri::AppHandle) -> Result<String, String> {
+    let status = app.karin_vpn().status().map_err(|e| e.to_string())?;
+    let device = app.karin_vpn().device_info().map_err(|e| e.to_string())?;
+    let logs = app.karin_vpn().logs().map_err(|e| e.to_string())?.content;
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or_default();
+
+    let report = format!(
+        "KarinCore Android diagnostics\n\
+===========================\n\
+App version: {}\n\
+Generated (Unix): {}\n\
+Architecture: {}\n\
+Android: {} (SDK {})\n\
+Manufacturer: {}\n\
+Brand: {}\n\
+Model: {}\n\
+Device: {}\n\
+Xray core: {}\n\
+VPN running: {}\n\
+VPN starting: {}\n\
+Xray running: {}\n\
+Reconnecting: {}\n\
+Always-on: {}\n\
+Lockdown: {}\n\
+TUN established: {}\n\
+App routing mode: {}\n\
+App routing package count: {}\n\
+Last error: {}\n\n\
+VPN/Xray logs\n\
+-------------\n{}\n",
+        env!("CARGO_PKG_VERSION"),
+        timestamp,
+        std::env::consts::ARCH,
+        device.android_release,
+        device.sdk_int,
+        device.manufacturer,
+        device.brand,
+        device.model,
+        device.device,
+        status.core_version.unwrap_or_else(|| "unknown".to_string()),
+        status.running,
+        status.starting,
+        status.core_running,
+        status.reconnecting,
+        status.always_on,
+        status.lockdown,
+        status.tun_fd.is_some(),
+        status.app_routing_mode,
+        status.app_package_count,
+        status.last_error.unwrap_or_else(|| "none".to_string()),
+        redact_diagnostic_logs(&logs)
+    );
+
+    let filename = format!(
+        "KarinCore-diagnostics-v{}-{}.txt",
+        env!("CARGO_PKG_VERSION"),
+        timestamp
+    );
+
+    app.karin_vpn()
+        .save_document(SaveDocumentRequest {
+            filename,
+            content: report,
+            mime_type: "text/plain".to_string(),
+        })
+        .map(|result| {
+            result.uri
+                .map(|uri| format!("Сохранено: {}", uri))
+                .unwrap_or_else(|| "Сохранено".to_string())
+        })
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn export_diagnostics() -> Result<String, String> {
+    Err("Диагностика в этом формате доступна только в Android-порте".to_string())
+}
+
+#[cfg(target_os = "android")]
 #[tauri::command]
 fn get_installed_apps(app: tauri::AppHandle) -> Result<Vec<InstalledApp>, String> {
     app.karin_vpn()
@@ -1784,6 +1886,8 @@ fn get_vpn_runtime_status(app: tauri::AppHandle) -> Result<serde_json::Value, St
         "reconnecting": status.reconnecting,
         "alwaysOn": status.always_on,
         "lockdown": status.lockdown,
+        "appRoutingMode": status.app_routing_mode,
+        "appPackageCount": status.app_package_count,
         "tunFd": status.tun_fd,
         "coreVersion": status.core_version,
         "lastError": status.last_error
@@ -1800,6 +1904,8 @@ fn get_vpn_runtime_status() -> Result<serde_json::Value, String> {
         "reconnecting": false,
         "alwaysOn": false,
         "lockdown": false,
+        "appRoutingMode": "all",
+        "appPackageCount": 0,
         "tunFd": null,
         "coreVersion": null,
         "lastError": null
@@ -1855,6 +1961,7 @@ pub fn run() {
             get_vpn_ip,
             check_ping,
             get_installed_apps,
+            export_diagnostics,
             export_profile,
             minimize_window,
             maximize_window,
