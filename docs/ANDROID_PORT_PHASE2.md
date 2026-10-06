@@ -1,6 +1,6 @@
 # Android port notes: Phase 2
 
-Version: `0.1.0-alpha.1`
+Version: `0.1.0-alpha.2`
 
 ## Data path
 
@@ -44,4 +44,4 @@ cf71680b776b9ca583747ba652f816b047a655eab875d8951e6141636d88bbd6
 
 ## Current verification boundary
 
-Static integration is based on KarinCore upstream 1.3.7 and the pinned AndroidLibXrayLite API. A complete Gradle/Rust/NDK build and real-device validation are still pending, so compile-time and runtime adjustments may be required.
+Static integration is based on KarinCore upstream 1.3.7 and the pinned AndroidLibXrayLite API. The full arm64 debug APK build now completes successfully in GitHub Actions. Real-device installation, tunnel establishment and traffic validation remain pending.

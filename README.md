@@ -2,7 +2,7 @@
   <img src="public/karincore-icon-main.png" alt="KarinCore" width="160"/>
   <h1>KarinCore Android</h1>
   <p>Android port of KarinCore powered by Tauri 2, Rust, Android VpnService and Xray-core.</p>
-  <p><strong>Current version: 0.1.0-alpha.1</strong></p>
+  <p><strong>Current version: 0.1.0-alpha.2</strong></p>
   <p><a href="README-ru.md">Русская версия</a></p>
 </div>
 
@@ -12,9 +12,9 @@ This repository is an experimental Android port of [detestern/KarinCore](https:/
 
 The shared KarinCore TypeScript UI and Rust parsing/routing logic are retained. Linux-specific tunnel setup is replaced on Android by a native `VpnService` bridge and Xray TUN integration.
 
-The source tree has been prepared for Android, but `0.1.0-alpha.1` has **not yet been validated by a complete APK build on a real Android toolchain/device**. The first device build is the next verification step.
+Version `0.1.0-alpha.2` is validated by a complete arm64 debug APK build in GitHub Actions. Real-device runtime validation is the next verification step.
 
-## Implemented in 0.1.0-alpha.1
+## Implemented through 0.1.0-alpha.2
 
 - Tauri 2 mobile entry point.
 - Native Android `VpnService`.
