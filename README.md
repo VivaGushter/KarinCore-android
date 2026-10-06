@@ -2,7 +2,7 @@
   <img src="public/karincore-icon-main.png" alt="KarinCore" width="160"/>
   <h1>KarinCore Android</h1>
   <p>Android port of KarinCore powered by Tauri 2, Rust, Android VpnService and Xray-core.</p>
-  <p><strong>Current version: 0.1.0-alpha.3</strong></p>
+  <p><strong>Current version: 0.1.0-alpha.4</strong></p>
   <p><a href="README-ru.md">Русская версия</a></p>
 </div>
 
@@ -12,9 +12,9 @@ This repository is an experimental Android port of [detestern/KarinCore](https:/
 
 The shared KarinCore TypeScript UI and Rust parsing/routing logic are retained. Linux-specific tunnel setup is replaced on Android by a native `VpnService` bridge and Xray TUN integration.
 
-Version `0.1.0-alpha.3` is validated by a complete arm64 debug APK build in GitHub Actions. Real-device runtime validation is the next verification step.
+Version `0.1.0-alpha.4` is validated by a complete arm64 debug APK build in GitHub Actions. Real-device runtime validation is the next verification step.
 
-## Implemented through 0.1.0-alpha.3
+## Implemented through 0.1.0-alpha.4
 
 - Tauri 2 mobile entry point.
 - Native Android `VpnService`.
@@ -29,9 +29,11 @@ Version `0.1.0-alpha.3` is validated by a complete arm64 debug APK build in GitH
 - VPN permission preparation, start, stop and status bridge.
 - VPN service survives WebView/activity closure.
 - Underlying network changes are monitored on Android P+; Wi-Fi/cellular handovers trigger an in-place Xray restart while keeping the TUN interface active.
+- Per-app split tunneling with All apps, Only selected and Bypass selected modes.
+- Installed launchable Android applications are discovered natively and can be searched and selected in Settings.
 - Android uses Rustls for `reqwest`; the desktop path keeps the upstream native TLS setup.
 
-Not implemented yet on Android: OpenVPN/WireGuard chaining, per-app routing UI, Android-native log viewer, mobile-specific layout polish and Android document-picker export.
+Not implemented yet on Android: OpenVPN/WireGuard chaining, Android-native log viewer, mobile-specific layout polish and Android document-picker export.
 
 ## Build prerequisites
 

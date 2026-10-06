@@ -2,7 +2,7 @@
   <img src="public/karincore-icon-main.png" alt="KarinCore" width="160"/>
   <h1>KarinCore Android</h1>
   <p>Android-порт KarinCore на Tauri 2, Rust, Android VpnService и Xray-core.</p>
-  <p><strong>Текущая версия: 0.1.0-alpha.3</strong></p>
+  <p><strong>Текущая версия: 0.1.0-alpha.4</strong></p>
   <p><a href="README.md">English</a></p>
 </div>
 
@@ -12,9 +12,9 @@
 
 В Android-порте сохранены интерфейс на TypeScript/Vite и общая Rust-логика KarinCore: парсинг ссылок, подписки, маршрутизация, DNS и профили. Linux-часть с `sudo`, systemd, `route.sh`, iptables и системным Xray на Android заменена нативным `VpnService`.
 
-Версия `0.1.0-alpha.3` успешно проходит полную CI-сборку arm64 debug APK в GitHub Actions. Следующий контрольный этап: запуск и проверка на реальном Android-устройстве.
+Версия `0.1.0-alpha.4` успешно проходит полную CI-сборку arm64 debug APK в GitHub Actions. Следующий контрольный этап: запуск и проверка на реальном Android-устройстве.
 
-## Реализовано к 0.1.0-alpha.3
+## Реализовано к 0.1.0-alpha.4
 
 - мобильная точка входа Tauri 2;
 - Android `VpnService`;
@@ -29,9 +29,11 @@
 - команды prepare/start/stop/status;
 - закрытие Activity/WebView не отключает foreground VPN;
 - Android P+ отслеживает смену underlying network; при переходе Wi-Fi/сотовая сеть Xray перезапускается без пересоздания TUN;
+- выбор приложений для VPN с режимами «Все приложения», «Только выбранные» и «Выбранные мимо VPN»;
+- список запускаемых Android-приложений получается нативно, поддерживает поиск и сохраняет выбранные пакеты;
 - для Android `reqwest` использует Rustls.
 
-Пока не реализованы: цепочки OpenVPN/WireGuard, выбор приложений для VPN, полноценные Android-логи, мобильная полировка интерфейса и экспорт через Android document picker.
+Пока не реализованы: цепочки OpenVPN/WireGuard, полноценные Android-логи, мобильная полировка интерфейса и экспорт через Android document picker.
 
 ## Первый запуск сборки
 

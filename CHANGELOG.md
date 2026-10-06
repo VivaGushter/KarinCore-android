@@ -2,6 +2,27 @@
 
 All notable Android-port changes are tracked here.
 
+## [0.1.0-alpha.4] - 2026-10-06
+
+Per-app split tunneling.
+
+### Added
+- Native discovery of launchable Android applications with labels and package names.
+- Searchable application selector in Settings.
+- Three VPN application-routing modes: All apps, Only selected and Bypass selected.
+- Persistent per-app routing configuration in local storage.
+- Android `VpnService.Builder.addAllowedApplication` and `addDisallowedApplication` integration.
+- Validation that Only selected mode contains at least one installed application.
+
+### Safety
+- KarinCore's own package is never added to the VPN allowlist.
+- Missing or uninstalled package names are ignored before the VPN interface is established.
+- Xray outbound traffic remains outside the TUN to prevent routing loops.
+
+### Verified
+- Complete arm64 debug APK build succeeds in GitHub Actions with per-app routing enabled.
+
+
 ## [0.1.0-alpha.3] - 2026-10-06
 
 Network handover recovery.

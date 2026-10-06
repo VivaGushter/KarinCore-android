@@ -22,7 +22,7 @@ UI
 
 The Linux daemon, sudoers rules, iptables, `route.sh`, systemd and system Xray binary are not used by the Android connection path.
 
-The Android service excludes KarinCore's own package from the VPN. Without that exclusion, Xray's outbound sockets can be captured by the same TUN they are trying to service, creating a routing loop.
+The Android service keeps KarinCore's own package outside the VPN. In All apps and Bypass selected modes it is explicitly excluded. In Only selected mode it is never added to the allowlist. This prevents Xray's outbound sockets from being captured by the TUN they are trying to service.
 
 Both IPv4 and IPv6 default routes are created. This is deliberate so IPv6-capable applications do not silently bypass an IPv4-only tunnel.
 
