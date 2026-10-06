@@ -6,6 +6,27 @@ All notable Android-port changes are tracked here.
 
 Native Android subscription transport.
 
+### Fixed
+- Android subscription downloads no longer depend on Rust reqwest transport.
+- Added a native Android `HttpURLConnection` / `HttpsURLConnection` fetch bridge running on a background executor.
+- Native fetch applies an 8 second connect timeout, 20 second read timeout, five-redirect limit and 8 MiB response cap.
+- Gzip subscription responses are decoded natively.
+- TLS validation remains enabled and TLS failures are surfaced explicitly.
+- Added a frontend 25 second watchdog around the Tauri subscription command so the Add button always leaves Loading state even if the bridge does not answer.
+
+### Architecture
+- Rust still owns subscription parsing, Base64 decoding, routing import and DNS import.
+- Android only owns the HTTP transport layer.
+
+### Verified
+- Native-fetch feature commit completes the full arm64 debug APK build in GitHub Actions.
+- Release commit is validated by the same Android build workflow.
+
+
+## [0.1.0-alpha.11] - 2026-10-06
+
+Native Android subscription transport.
+
 ### Changed
 - Android subscription downloads no longer use Rust `reqwest`.
 - Subscription HTTP is performed natively in Kotlin through `HttpURLConnection`.
