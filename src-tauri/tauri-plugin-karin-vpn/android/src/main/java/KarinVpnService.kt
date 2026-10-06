@@ -39,15 +39,76 @@ class KarinVpnService : VpnService() {
         worker.execute { reloadCoreForHandover() }
     }
 
+    override fun onCreate() {
+        super.onCreate()
+        instance = this
+        refreshSystemVpnFlags()
+    }
+
+    private data class PersistedConnection(
+        val configJson: String,
+        val mtu: Int,
+        val appRoutingMode: String,
+        val appPackages: List<String>
+    )
+
+    private fun persistConnection(
+        configJson: String,
+        mtu: Int,
+        appRoutingMode: String,
+        appPackages: List<String>
+    ) {
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            .edit()
+            .putString(PREF_CONFIG_JSON, configJson)
+            .putInt(PREF_MTU, mtu)
+            .putString(PREF_APP_ROUTING_MODE, appRoutingMode)
+            .putStringSet(PREF_APP_PACKAGES, appPackages.toSet())
+            .apply()
+    }
+
+    private fun loadPersistedConnection(): PersistedConnection? {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val config = prefs.getString(PREF_CONFIG_JSON, null)?.takeIf { it.isNotBlank() } ?: return null
+        return PersistedConnection(
+            configJson = config,
+            mtu = prefs.getInt(PREF_MTU, 1500).coerceIn(1280, 9000),
+            appRoutingMode = prefs.getString(PREF_APP_ROUTING_MODE, "all") ?: "all",
+            appPackages = prefs.getStringSet(PREF_APP_PACKAGES, emptySet())?.toList().orEmpty()
+        )
+    }
+
+    private fun clearPersistedConnection() {
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().clear().apply()
+    }
+
+    private fun refreshSystemVpnFlags() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            alwaysOn = isAlwaysOn
+            lockdown = isLockdownEnabled
+        } else {
+            alwaysOn = false
+            lockdown = false
+        }
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        refreshSystemVpnFlags()
+
         when (intent?.action) {
-            ACTION_STOP -> worker.execute { stopTunnel(stopService = true) }
+            ACTION_STOP -> worker.execute {
+                clearPersistedConnection()
+                stopTunnel(stopService = true)
+            }
             ACTION_START -> {
                 val configJson = intent.getStringExtra(EXTRA_CONFIG_JSON).orEmpty()
                 val mtu = intent.getIntExtra(EXTRA_MTU, 1500).coerceIn(1280, 9000)
                 val appRoutingMode = intent.getStringExtra(EXTRA_APP_ROUTING_MODE) ?: "all"
                 val appPackages = intent.getStringArrayListExtra(EXTRA_APP_PACKAGES)?.toList().orEmpty()
 
+                // A user-requested profile change must not leave an older profile
+                // behind for a future always-on restart if the new one fails.
+                clearPersistedConnection()
                 startInForeground("Подключение…")
                 recordLog("INFO", "VPN start requested; appRouting=$appRoutingMode, selectedApps=${appPackages.size}")
                 starting = true
@@ -56,6 +117,7 @@ class KarinVpnService : VpnService() {
                 worker.execute {
                     try {
                         startTunnel(configJson, mtu, appRoutingMode, appPackages)
+                        persistConnection(configJson, mtu, appRoutingMode, appPackages)
                     } catch (t: Throwable) {
                         recordLog("ERROR", "VPN start failed: ${t.message ?: t.javaClass.simpleName}", t)
                         lastError = t.message ?: t.javaClass.simpleName
@@ -65,8 +127,47 @@ class KarinVpnService : VpnService() {
                     }
                 }
             }
+            else -> {
+                // Android starts VpnService itself when Always-on VPN is enabled,
+                // including after reboot. Restore only a previously successful
+                // connection; never invent or partially reconstruct a config.
+                val persisted = loadPersistedConnection()
+                if (persisted == null) {
+                    recordLog("WARN", "System started VPN service without a persisted connection")
+                    stopSelf()
+                } else {
+                    startInForeground("Восстановление VPN…")
+                    recordLog(
+                        "INFO",
+                        "System VPN start; alwaysOn=$alwaysOn, lockdown=$lockdown, appRouting=${persisted.appRoutingMode}"
+                    )
+                    starting = true
+                    lastError = null
+
+                    worker.execute {
+                        try {
+                            startTunnel(
+                                persisted.configJson,
+                                persisted.mtu,
+                                persisted.appRoutingMode,
+                                persisted.appPackages
+                            )
+                        } catch (t: Throwable) {
+                            recordLog(
+                                "ERROR",
+                                "Always-on VPN restore failed: ${t.message ?: t.javaClass.simpleName}",
+                                t
+                            )
+                            lastError = t.message ?: t.javaClass.simpleName
+                            stopTunnel(stopService = true)
+                        } finally {
+                            starting = false
+                        }
+                    }
+                }
+            }
         }
-        // Do not silently recreate a VPN without a config after process death.
+
         return START_NOT_STICKY
     }
 
@@ -354,6 +455,7 @@ class KarinVpnService : VpnService() {
 
     override fun onRevoke() {
         recordLog("WARN", "Android revoked VPN permission")
+        clearPersistedConnection()
         worker.execute { stopTunnel(stopService = true) }
         super.onRevoke()
     }
@@ -362,6 +464,7 @@ class KarinVpnService : VpnService() {
         synchronized(stateLock) {
             stopTunnelLocked(stopService = false)
         }
+        if (instance === this) instance = null
         worker.shutdownNow()
         super.onDestroy()
     }
@@ -431,6 +534,12 @@ class KarinVpnService : VpnService() {
 
     companion object {
         private const val TAG = "KarinVpnService"
+        private const val PREFS_NAME = "karincore_vpn_state"
+        private const val PREF_CONFIG_JSON = "config_json"
+        private const val PREF_MTU = "mtu"
+        private const val PREF_APP_ROUTING_MODE = "app_routing_mode"
+        private const val PREF_APP_PACKAGES = "app_packages"
+        @Volatile private var instance: KarinVpnService? = null
         private const val MAX_LOG_LINES = 500
         private val logLock = Any()
         private val logLines = ArrayDeque<String>()
@@ -461,6 +570,11 @@ class KarinVpnService : VpnService() {
             }
             recordLog("INFO", "Log buffer cleared")
         }
+
+        fun refreshSystemStatus() {
+            instance?.refreshSystemVpnFlags()
+        }
+
         const val ACTION_START = "com.vivagushter.karincore.vpn.START"
         const val ACTION_STOP = "com.vivagushter.karincore.vpn.STOP"
         const val EXTRA_CONFIG_JSON = "config_json"
@@ -477,6 +591,8 @@ class KarinVpnService : VpnService() {
         @Volatile var starting: Boolean = false
         @Volatile var coreRunning: Boolean = false
         @Volatile var reconnecting: Boolean = false
+        @Volatile var alwaysOn: Boolean = false
+        @Volatile var lockdown: Boolean = false
         @Volatile var tunFd: Int = -1
         @Volatile var coreVersion: String? = null
         @Volatile var lastError: String? = null

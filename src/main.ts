@@ -18,6 +18,8 @@ interface VpnRuntimeStatus {
     starting: boolean;
     coreRunning: boolean;
     reconnecting: boolean;
+    alwaysOn: boolean;
+    lockdown: boolean;
     tunFd?: number | null;
     coreVersion?: string | null;
     lastError?: string | null;
@@ -43,6 +45,8 @@ let nativeVpnRunning = false;
 let nativeVpnStarting = false;
 let nativeVpnCoreRunning = false;
 let nativeVpnReconnecting = false;
+let nativeVpnAlwaysOn = false;
+let nativeVpnLockdown = false;
 let currentTheme = localStorage.getItem('karin_theme') || 'dark';
 let currentLang = localStorage.getItem('karin_lang') || 'en';
 let activeLink: string | null = sessionStorage.getItem('karin_active_link') || null;
@@ -612,7 +616,7 @@ async function connectProxy(link: string) {
             allowServerProxy: allowServerProxy,
             zonePriority: zonePriority,
             proxyLan: allowProxyLan,
-            killSwitch: localStorage.getItem('karin_kill_switch') === 'true',
+            killSwitch: runtimeInfo.platform !== 'android' && localStorage.getItem('karin_kill_switch') === 'true',
             appRoutingMode,
             appPackages: Array.from(selectedAppPackages)
         });
@@ -639,7 +643,16 @@ async function connectProxy(link: string) {
 }
 
 async function disconnectProxy() {
-    await invoke('stop_proxy');
+    try {
+        await invoke('stop_proxy');
+    } catch (error) {
+        if (String(error).includes('ALWAYS_ON_VPN_ENABLED')) {
+            alert(t('settings_android_disable_always_on_first'));
+            return;
+        }
+        alert(`Core Error: ${error}`);
+        return;
+    }
     nativeVpnRunning = false;
     nativeVpnStarting = false;
     nativeVpnCoreRunning = false;
@@ -1201,6 +1214,29 @@ function renderInstalledApps(filter = '') {
         });
 }
 
+function renderAndroidSystemVpnStatus() {
+    const section = document.getElementById('android-system-vpn-section') as HTMLDivElement | null;
+    const desktopSection = document.getElementById('desktop-kill-switch-section') as HTMLDivElement | null;
+    const status = document.getElementById('android-system-vpn-status') as HTMLDivElement | null;
+
+    if (runtimeInfo.platform !== 'android') {
+        if (section) section.style.display = 'none';
+        if (desktopSection) desktopSection.style.display = 'block';
+        return;
+    }
+
+    if (section) section.style.display = 'block';
+    if (desktopSection) desktopSection.style.display = 'none';
+
+    if (status) {
+        status.textContent = nativeVpnLockdown
+            ? t('settings_android_lockdown_on')
+            : nativeVpnAlwaysOn
+                ? t('settings_android_always_on')
+                : t('settings_android_always_off');
+    }
+}
+
 async function initAndroidAppRouting() {
     try {
         const apps = await invoke<InstalledApp[]>('get_installed_apps');
@@ -1232,6 +1268,9 @@ async function restoreAndroidVpnState() {
         nativeVpnStarting = !!status.starting;
         nativeVpnCoreRunning = !!status.coreRunning;
         nativeVpnReconnecting = !!status.reconnecting;
+        nativeVpnAlwaysOn = !!status.alwaysOn;
+        nativeVpnLockdown = !!status.lockdown;
+        renderAndroidSystemVpnStatus();
 
         const nativeActive = nativeVpnRunning || nativeVpnStarting || nativeVpnCoreRunning || nativeVpnReconnecting;
         if (nativeActive) {
@@ -1255,6 +1294,9 @@ async function restoreAndroidVpnState() {
         nativeVpnStarting = false;
         nativeVpnCoreRunning = false;
         nativeVpnReconnecting = false;
+        nativeVpnAlwaysOn = false;
+        nativeVpnLockdown = false;
+        renderAndroidSystemVpnStatus();
         activeLink = null;
         sessionStorage.removeItem('karin_active_link');
     }
@@ -1268,6 +1310,7 @@ async function init() {
     }
 
     document.documentElement.classList.toggle('platform-android', runtimeInfo.platform === 'android');
+    renderAndroidSystemVpnStatus();
     await restoreAndroidVpnState();
 
     const versionNodes = document.querySelectorAll('.app-version-text');
@@ -1413,6 +1456,20 @@ async function init() {
 
     document.getElementById('android-app-modal-close')?.addEventListener('click', () => {
         appRoutingModal?.close();
+    });
+
+    document.getElementById('android-vpn-settings-btn')?.addEventListener('click', async () => {
+        try {
+            await invoke('open_android_vpn_settings');
+        } catch (error) {
+            alert(`${t('settings_android_vpn_settings_error')}: ${error}`);
+        }
+    });
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && runtimeInfo.platform === 'android') {
+            void restoreAndroidVpnState().then(() => updateStatusUI());
+        }
     });
 
     const killSwitchToggle = document.getElementById('kill-switch-toggle') as HTMLInputElement | null;

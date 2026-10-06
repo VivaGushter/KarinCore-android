@@ -46,6 +46,10 @@ pub struct VpnStatus {
     pub core_running: bool,
     #[serde(default)]
     pub reconnecting: bool,
+    #[serde(default)]
+    pub always_on: bool,
+    #[serde(default)]
+    pub lockdown: bool,
     pub tun_fd: Option<i32>,
     pub core_version: Option<String>,
     pub last_error: Option<String>,
@@ -81,4 +85,11 @@ fn default_document_mime() -> String { "application/json".to_string() }
 pub struct SaveDocumentResult {
     pub saved: bool,
     pub uri: Option<String>,
+}
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenSettingsResult {
+    pub opened: bool,
 }

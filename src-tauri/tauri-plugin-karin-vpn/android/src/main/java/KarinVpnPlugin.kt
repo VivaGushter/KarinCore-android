@@ -8,6 +8,7 @@ import android.net.VpnService
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.provider.Settings
 import androidx.activity.result.ActivityResult
 import androidx.core.content.ContextCompat
 import app.tauri.annotation.ActivityCallback
@@ -116,6 +117,12 @@ class KarinVpnPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun stop(invoke: Invoke) {
         try {
+            KarinVpnService.refreshSystemStatus()
+            if (KarinVpnService.alwaysOn) {
+                invoke.reject("ALWAYS_ON_VPN_ENABLED")
+                return
+            }
+
             val intent = Intent(activity, KarinVpnService::class.java).apply {
                 action = KarinVpnService.ACTION_STOP
             }
@@ -240,6 +247,21 @@ class KarinVpnPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     @Command
+    fun openVpnSettings(invoke: Invoke) {
+        try {
+            val intent = Intent(Settings.ACTION_VPN_SETTINGS)
+            if (intent.resolveActivity(activity.packageManager) == null) {
+                invoke.reject("VPN_SETTINGS_UNAVAILABLE")
+                return
+            }
+            activity.startActivity(intent)
+            invoke.resolve(JSObject().apply { put("opened", true) })
+        } catch (ex: Exception) {
+            invoke.reject(ex.message ?: "Unable to open Android VPN settings")
+        }
+    }
+
+    @Command
     fun logs(invoke: Invoke) {
         invoke.resolve(JSObject().apply {
             put("content", KarinVpnService.logsSnapshot())
@@ -254,6 +276,7 @@ class KarinVpnPlugin(private val activity: Activity) : Plugin(activity) {
 
     @Command
     fun status(invoke: Invoke) {
+        KarinVpnService.refreshSystemStatus()
         invoke.resolve(statusObject())
     }
 
@@ -262,6 +285,8 @@ class KarinVpnPlugin(private val activity: Activity) : Plugin(activity) {
         put("starting", KarinVpnService.starting)
         put("coreRunning", KarinVpnService.coreRunning)
         put("reconnecting", KarinVpnService.reconnecting)
+        put("alwaysOn", KarinVpnService.alwaysOn)
+        put("lockdown", KarinVpnService.lockdown)
         put("tunFd", KarinVpnService.tunFd.takeIf { it >= 0 })
         put("coreVersion", KarinVpnService.coreVersion)
         put("lastError", KarinVpnService.lastError)

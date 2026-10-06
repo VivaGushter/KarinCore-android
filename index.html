@@ -358,14 +358,22 @@
           <span class="slider"></span>
         </label>
       </div>
-      <div style="margin-top: 15px; display: flex; align-items: center; gap: 15px;">
-        <label style="font-size: 14px;" data-i18n="settings_kill_switch">Kill Switch:</label>
-        <label class="switch">
-          <input type="checkbox" id="kill-switch-toggle">
-          <span class="slider"></span>
-        </label>
+      <div id="desktop-kill-switch-section">
+        <div style="margin-top: 15px; display: flex; align-items: center; gap: 15px;">
+          <label style="font-size: 14px;" data-i18n="settings_kill_switch">Kill Switch:</label>
+          <label class="switch">
+            <input type="checkbox" id="kill-switch-toggle">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div style="margin-top: 4px; font-size: 11px; color: var(--text-dim);" data-i18n="settings_kill_switch_note">Блокирует весь трафик, если туннель неожиданно оборвётся.</div>
       </div>
-      <div style="margin-top: 4px; font-size: 11px; color: var(--text-dim);" data-i18n="settings_kill_switch_note">Блокирует весь трафик, если туннель неожиданно оборвётся. Снимается при отключении или новом подключении. Если что-то пойдёт не так — sudo iptables -F OUTPUT сбросит правила вручную.</div>
+      <div id="android-system-vpn-section" style="display:none; margin-top:18px; padding:12px; border:1px solid var(--border-color); border-radius:8px; background:var(--base-crust);">
+        <div style="font-size:14px; font-weight:600;" data-i18n="settings_android_kill_switch">Android Kill Switch</div>
+        <div style="margin-top:5px; font-size:11px; color:var(--text-dim);" data-i18n="settings_android_kill_switch_note">Use Android Always-on VPN and Block connections without VPN for system-level protection.</div>
+        <div id="android-system-vpn-status" style="margin-top:8px; font-size:11px; color:var(--text-dim);"></div>
+        <button id="android-vpn-settings-btn" class="small-btn" type="button" style="margin-top:10px;" data-i18n="settings_android_open_vpn">Open VPN settings</button>
+      </div>
       <div id="android-app-routing-section" style="display:none; margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--border-color);">
         <div style="font-size: 14px; font-weight: 600;" data-i18n="settings_app_routing_title">Per-app VPN</div>
         <div style="margin-top: 4px; font-size: 11px; color: var(--text-dim);" data-i18n="settings_app_routing_desc">Choose which Android applications use the VPN tunnel.</div>

@@ -1707,6 +1707,8 @@ fn get_vpn_runtime_status(app: tauri::AppHandle) -> Result<serde_json::Value, St
         "starting": status.starting,
         "coreRunning": status.core_running,
         "reconnecting": status.reconnecting,
+        "alwaysOn": status.always_on,
+        "lockdown": status.lockdown,
         "tunFd": status.tun_fd,
         "coreVersion": status.core_version,
         "lastError": status.last_error
@@ -1721,10 +1723,27 @@ fn get_vpn_runtime_status() -> Result<serde_json::Value, String> {
         "starting": false,
         "coreRunning": false,
         "reconnecting": false,
+        "alwaysOn": false,
+        "lockdown": false,
         "tunFd": null,
         "coreVersion": null,
         "lastError": null
     }))
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn open_android_vpn_settings(app: tauri::AppHandle) -> Result<bool, String> {
+    app.karin_vpn()
+        .open_vpn_settings()
+        .map(|result| result.opened)
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn open_android_vpn_settings() -> Result<bool, String> {
+    Ok(false)
 }
 
 #[tauri::command]
@@ -1771,7 +1790,8 @@ pub fn run() {
             close_window,
             open_browser,
             get_runtime_info,
-            get_vpn_runtime_status
+            get_vpn_runtime_status,
+            open_android_vpn_settings
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
