@@ -1,6 +1,6 @@
 # Phase 3 status
 
-Current version: `0.1.0-alpha.11`
+Current version: `0.1.0-alpha.12`
 
 ## Completed
 

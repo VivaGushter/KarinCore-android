@@ -2,6 +2,27 @@
 
 All notable Android-port changes are tracked here.
 
+## [0.1.0-alpha.12] - 2026-10-06
+
+Android fork update channel and automated releases.
+
+### Fixed
+- The in-app update checker no longer falls back to the upstream `detestern/KarinCore` repository.
+- Update checks now read the Android fork's `VERSION` file directly, so alpha/beta prereleases are detected correctly.
+- Update links target the exact version tag in `VivaGushter/KarinCore-android`.
+- The About page identifies the Android fork and keeps upstream attribution separate.
+
+### Added
+- Semantic prerelease-aware version comparison in the frontend.
+- GitHub Actions release publishing for `release:` commits.
+- Automatic version tag creation, prerelease creation, changelog release notes and APK attachment.
+- Retry logic for transient Android SDK/NDK download corruption in CI.
+
+### Verified
+- The updater/release-channel feature commit completes the full arm64 debug APK build.
+- This release commit is intended to validate automatic GitHub Release publication end-to-end.
+
+
 ## [0.1.0-alpha.11] - 2026-10-06
 
 Native Android subscription transport.
