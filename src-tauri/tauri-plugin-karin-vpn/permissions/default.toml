@@ -1,0 +1,3 @@
+[default]
+description = "Allows KarinCore to prepare, start, stop and inspect the Android VPN service."
+permissions = ["allow-prepare", "allow-start", "allow-stop", "allow-status"]
