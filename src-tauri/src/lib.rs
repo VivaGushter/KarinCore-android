@@ -1457,28 +1457,73 @@ fn stop_proxy(_state: State<'_, ProxyState>) -> Result<String, String> {
 // **********************************
 // TAURI COMMANDS: UTILITIES & NETWORK
 // **********************************
-#[tauri::command]
-async fn get_vpn_ip(_state: State<'_, ProxyState>) -> Result<String, String> {
+fn build_probe_client(state: &State<'_, ProxyState>) -> Result<reqwest::Client, String> {
     let proxy_url = {
-        let guard = _state.auth_token.lock().unwrap();
-        if let Some(token) = guard.as_ref() { format!("http://karin:{}@127.0.0.1:2082", token) } else { "http://127.0.0.1:2082".to_string() }
+        let guard = state.auth_token.lock().unwrap();
+        if let Some(token) = guard.as_ref() {
+            format!("http://karin:{}@127.0.0.1:2082", token)
+        } else {
+            "http://127.0.0.1:2082".to_string()
+        }
     };
+
     let proxy = reqwest::Proxy::all(&proxy_url).map_err(|e| e.to_string())?;
-    let client = reqwest::Client::builder().proxy(proxy).timeout(std::time::Duration::from_secs(10)).build().map_err(|e| e.to_string())?;
-    let ip = client.get("http://ifconfig.me/ip").send().await.map_err(|e| format!("Ошибка сети: {}", e))?.text().await.map_err(|_e| "Ошибка парсинга".to_string())?;
-    Ok(ip)
+    reqwest::Client::builder()
+        .proxy(proxy)
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())
+}
+
+async fn probe_proxy_text(state: &State<'_, ProxyState>, url: &str) -> Result<String, String> {
+    let client = build_probe_client(state)?;
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| format!("Ошибка сети: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!("HTTP {}", response.status()));
+    }
+
+    response
+        .text()
+        .await
+        .map(|text| text.trim().to_string())
+        .map_err(|e| format!("Ошибка чтения ответа: {}", e))
 }
 
 #[tauri::command]
-async fn check_ping(_state: State<'_, ProxyState>) -> Result<String, String> {
-    let proxy_url = {
-        let guard = _state.auth_token.lock().unwrap();
-        if let Some(token) = guard.as_ref() { format!("http://karin:{}@127.0.0.1:2082", token) } else { "http://127.0.0.1:2082".to_string() }
-    };
-    let proxy = reqwest::Proxy::all(&proxy_url).map_err(|e| e.to_string())?;
-    let client = reqwest::Client::builder().proxy(proxy).timeout(std::time::Duration::from_secs(10)).build().map_err(|e| e.to_string())?;
+async fn get_vpn_ip(state: State<'_, ProxyState>) -> Result<String, String> {
+    probe_proxy_text(&state, "https://api.ipify.org").await
+}
+
+#[tauri::command]
+async fn get_vpn_ipv4(state: State<'_, ProxyState>) -> Result<String, String> {
+    probe_proxy_text(&state, "https://api4.ipify.org").await
+}
+
+#[tauri::command]
+async fn get_vpn_ipv6(state: State<'_, ProxyState>) -> Result<String, String> {
+    probe_proxy_text(&state, "https://api6.ipify.org").await
+}
+
+#[tauri::command]
+async fn check_ping(state: State<'_, ProxyState>) -> Result<String, String> {
+    let client = build_probe_client(&state)?;
     let start = std::time::Instant::now();
-    let _ = client.get("http://cp.cloudflare.com/generate_204").send().await.map_err(|_e| "Ошибка сети".to_string())?; 
+    let response = client
+        .get("https://cp.cloudflare.com/generate_204")
+        .send()
+        .await
+        .map_err(|e| format!("Ошибка сети: {}", e))?;
+
+    if !response.status().is_success() && response.status().as_u16() != 204 {
+        return Err(format!("HTTP {}", response.status()));
+    }
+
     Ok(format!("{} ms", start.elapsed().as_millis()))
 }
 
@@ -1959,6 +2004,8 @@ pub fn run() {
             get_logs,
             clear_logs,
             get_vpn_ip,
+            get_vpn_ipv4,
+            get_vpn_ipv6,
             check_ping,
             get_installed_apps,
             export_diagnostics,

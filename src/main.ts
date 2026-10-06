@@ -735,9 +735,10 @@ async function runVpnSelfTest() {
             return;
         }
 
-        const [pingResult, ipResult] = await Promise.allSettled([
+        const [pingResult, ipv4Result, ipv6Result] = await Promise.allSettled([
             invoke<string>('check_ping'),
-            invoke<string>('get_vpn_ip')
+            invoke<string>('get_vpn_ipv4'),
+            invoke<string>('get_vpn_ipv6')
         ]);
 
         if (pingResult.status === 'fulfilled') {
@@ -746,13 +747,19 @@ async function runVpnSelfTest() {
             lines.push(`✗ ${t('logs_self_test_proxy_path')}: ${String(pingResult.reason)}`);
         }
 
-        if (ipResult.status === 'fulfilled') {
-            lines.push(`✓ ${t('logs_self_test_external_ip')}: ${ipResult.value.trim()}`);
+        if (ipv4Result.status === 'fulfilled') {
+            lines.push(`✓ ${t('logs_self_test_ipv4')}: ${ipv4Result.value.trim()}`);
         } else {
-            lines.push(`✗ ${t('logs_self_test_external_ip')}: ${String(ipResult.reason)}`);
+            lines.push(`✗ ${t('logs_self_test_ipv4')}: ${String(ipv4Result.reason)}`);
         }
 
-        const passed = pingResult.status === 'fulfilled' && ipResult.status === 'fulfilled';
+        if (ipv6Result.status === 'fulfilled') {
+            lines.push(`✓ ${t('logs_self_test_ipv6')}: ${ipv6Result.value.trim()}`);
+        } else {
+            lines.push(`! ${t('logs_self_test_ipv6_unavailable')}: ${String(ipv6Result.reason)}`);
+        }
+
+        const passed = pingResult.status === 'fulfilled' && ipv4Result.status === 'fulfilled';
         lines.push('');
         lines.push(passed ? t('logs_self_test_ok') : t('logs_self_test_failed'));
         vpnSelfTestOutput.textContent = lines.join('\n');
