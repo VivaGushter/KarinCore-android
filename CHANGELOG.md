@@ -2,6 +2,28 @@
 
 All notable Android-port changes are tracked here.
 
+## [0.1.0-alpha.6] - 2026-10-06
+
+Mobile UI and Android document export.
+
+### Added
+- Android system document picker for routing-profile JSON export.
+- Native document-writing bridge through the KarinCore Tauri Android plugin.
+- Android-specific responsive layout with safe-area handling.
+- Narrow-screen routing layout that stacks Direct / Proxy / Block columns vertically.
+- Runtime metadata command exposing platform, package version and update repository to the frontend.
+
+### Changed
+- Desktop frameless titlebar and minimize/maximize/close controls are hidden on Android.
+- Splash screen, sidebar, dialogs and profile drawer now use Android viewport/safe-area dimensions.
+- Hero connection control scales to phone width and short screens.
+- Update checker uses the Android-port repository on Android.
+- Visible application version is derived from Cargo package metadata instead of a hardcoded frontend string.
+
+### Verified
+- Complete arm64 debug APK build succeeds in GitHub Actions with mobile layout and Android document export enabled.
+
+
 ## [0.1.0-alpha.5] - 2026-10-06
 
 Android-native VPN and Xray event logs.
