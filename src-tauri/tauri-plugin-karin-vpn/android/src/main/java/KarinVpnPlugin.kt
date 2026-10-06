@@ -2,6 +2,8 @@ package com.vivagushter.karincore.vpn
 
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
 import android.net.VpnService
 import android.os.Handler
 import android.os.Looper
@@ -13,6 +15,7 @@ import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
+import app.tauri.plugin.JSArray
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 
@@ -20,6 +23,8 @@ import app.tauri.plugin.Plugin
 class StartArgs {
     lateinit var configJson: String
     var mtu: Int = 1500
+    var appRoutingMode: String = "all"
+    var appPackages: Array<String> = emptyArray()
 }
 
 @TauriPlugin
@@ -70,6 +75,11 @@ class KarinVpnPlugin(private val activity: Activity) : Plugin(activity) {
                 action = KarinVpnService.ACTION_START
                 putExtra(KarinVpnService.EXTRA_CONFIG_JSON, args.configJson)
                 putExtra(KarinVpnService.EXTRA_MTU, args.mtu)
+                putExtra(KarinVpnService.EXTRA_APP_ROUTING_MODE, args.appRoutingMode)
+                putStringArrayListExtra(
+                    KarinVpnService.EXTRA_APP_PACKAGES,
+                    ArrayList(args.appPackages.toList())
+                )
             }
             ContextCompat.startForegroundService(activity, intent)
 
@@ -117,6 +127,52 @@ class KarinVpnPlugin(private val activity: Activity) : Plugin(activity) {
                 invoke.reject("VPN_STOP_TIMEOUT")
             }
             else -> mainHandler.postDelayed({ waitForStop(invoke, deadline) }, POLL_MS)
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    @Command
+    fun listApps(invoke: Invoke) {
+        try {
+            val launcherIntent = Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_LAUNCHER)
+            }
+
+            val resolved = if (android.os.Build.VERSION.SDK_INT >= 33) {
+                activity.packageManager.queryIntentActivities(
+                    launcherIntent,
+                    PackageManager.ResolveInfoFlags.of(0)
+                )
+            } else {
+                activity.packageManager.queryIntentActivities(launcherIntent, 0)
+            }
+
+            val appsByPackage = linkedMapOf<String, JSObject>()
+            resolved.forEach { info ->
+                val packageName = info.activityInfo?.packageName ?: return@forEach
+                if (packageName == activity.packageName) return@forEach
+                val applicationInfo = info.activityInfo?.applicationInfo
+
+                appsByPackage[packageName] = JSObject().apply {
+                    put("label", info.loadLabel(activity.packageManager).toString())
+                    put("packageName", packageName)
+                    put(
+                        "system",
+                        applicationInfo != null &&
+                            (applicationInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+                    )
+                }
+            }
+
+            val rows = appsByPackage.values
+                .sortedBy { it.getString("label").lowercase() }
+                .toTypedArray()
+
+            invoke.resolve(JSObject().apply {
+                put("apps", JSArray.from(rows))
+            })
+        } catch (ex: Exception) {
+            invoke.reject(ex.message ?: "Failed to list installed applications")
         }
     }
 

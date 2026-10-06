@@ -366,6 +366,19 @@
         </label>
       </div>
       <div style="margin-top: 4px; font-size: 11px; color: var(--text-dim);" data-i18n="settings_kill_switch_note">Блокирует весь трафик, если туннель неожиданно оборвётся. Снимается при отключении или новом подключении. Если что-то пойдёт не так — sudo iptables -F OUTPUT сбросит правила вручную.</div>
+      <div id="android-app-routing-section" style="display:none; margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--border-color);">
+        <div style="font-size: 14px; font-weight: 600;" data-i18n="settings_app_routing_title">Per-app VPN</div>
+        <div style="margin-top: 4px; font-size: 11px; color: var(--text-dim);" data-i18n="settings_app_routing_desc">Choose which Android applications use the VPN tunnel.</div>
+        <div style="display:flex; gap:10px; align-items:center; margin-top:12px;">
+          <select id="android-app-routing-mode" style="flex:1;">
+            <option value="all" data-i18n="settings_app_routing_all">All apps</option>
+            <option value="allowlist" data-i18n="settings_app_routing_allowlist">Only selected</option>
+            <option value="denylist" data-i18n="settings_app_routing_denylist">Bypass selected</option>
+          </select>
+          <button id="android-app-routing-choose" class="small-btn" type="button" data-i18n="settings_app_routing_choose">Select apps</button>
+        </div>
+        <div id="android-app-routing-summary" style="margin-top:7px;font-size:11px;color:var(--text-dim);"></div>
+      </div>
     </div>
   </div>
   
@@ -375,6 +388,15 @@
       <div class="panel" id="about-patch-panel"></div>
     </div>
   </div>
+
+  <dialog id="android-app-modal" class="panel" style="width:min(520px, calc(100vw - 32px)); max-height:78vh;">
+    <h3 data-i18n="settings_app_routing_title">Per-app VPN</h3>
+    <input id="android-app-search" type="text" data-i18n-placeholder="settings_app_routing_search" placeholder="Search applications..." style="width:100%;box-sizing:border-box;">
+    <div id="android-app-list" style="margin-top:10px;max-height:52vh;overflow-y:auto;border:1px solid var(--border-color);border-radius:8px;"></div>
+    <div style="display:flex;justify-content:flex-end;margin-top:12px;">
+      <button id="android-app-modal-close" class="small-btn" type="button" data-i18n="btn_close">Close</button>
+    </div>
+  </dialog>
 
   <script type="module" src="/src/main.ts"></script>
 

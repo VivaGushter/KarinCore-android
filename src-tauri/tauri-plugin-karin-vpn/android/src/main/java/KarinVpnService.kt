@@ -42,6 +42,8 @@ class KarinVpnService : VpnService() {
             ACTION_START -> {
                 val configJson = intent.getStringExtra(EXTRA_CONFIG_JSON).orEmpty()
                 val mtu = intent.getIntExtra(EXTRA_MTU, 1500).coerceIn(1280, 9000)
+                val appRoutingMode = intent.getStringExtra(EXTRA_APP_ROUTING_MODE) ?: "all"
+                val appPackages = intent.getStringArrayListExtra(EXTRA_APP_PACKAGES)?.toList().orEmpty()
 
                 startInForeground("Подключение…")
                 starting = true
@@ -49,7 +51,7 @@ class KarinVpnService : VpnService() {
 
                 worker.execute {
                     try {
-                        startTunnel(configJson, mtu)
+                        startTunnel(configJson, mtu, appRoutingMode, appPackages)
                     } catch (t: Throwable) {
                         Log.e(TAG, "Failed to start VPN", t)
                         lastError = t.message ?: t.javaClass.simpleName
@@ -78,7 +80,12 @@ class KarinVpnService : VpnService() {
         coreController = Libv2ray.newCoreController(CoreCallback())
     }
 
-    private fun startTunnel(configJson: String, mtu: Int) {
+    private fun startTunnel(
+        configJson: String,
+        mtu: Int,
+        appRoutingMode: String,
+        appPackages: List<String>
+    ) {
         require(configJson.isNotBlank()) { "Xray config is empty" }
 
         synchronized(stateLock) {
@@ -98,10 +105,7 @@ class KarinVpnService : VpnService() {
                 .addRoute("::", 0)
                 .addDnsServer("1.1.1.1")
 
-            // Critical: Xray runs inside the KarinCore package. Excluding our own
-            // package keeps Xray's upstream sockets on the physical network and
-            // prevents the classic VPN -> Xray -> VPN infinite loop.
-            builder.addDisallowedApplication(packageName)
+            applyAppRouting(builder, appRoutingMode, appPackages)
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 builder.setMetered(false)
@@ -130,6 +134,51 @@ class KarinVpnService : VpnService() {
             updateNotification("VPN подключён")
             Log.i(TAG, "KarinCore VPN started, fd=${pfd.fd}, core=$coreVersion")
         }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun applyAppRouting(
+        builder: Builder,
+        mode: String,
+        packages: List<String>
+    ) {
+        val validPackages = packages
+            .asSequence()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && it != packageName }
+            .distinct()
+            .filter { candidate ->
+                try {
+                    packageManager.getApplicationInfo(candidate, 0)
+                    true
+                } catch (_: PackageManager.NameNotFoundException) {
+                    Log.w(TAG, "Ignoring missing package in app routing: $candidate")
+                    false
+                }
+            }
+            .toList()
+
+        when (mode) {
+            "allowlist" -> {
+                require(validPackages.isNotEmpty()) {
+                    "Per-app mode 'Only selected' requires at least one installed application"
+                }
+                validPackages.forEach { builder.addAllowedApplication(it) }
+            }
+            "denylist" -> {
+                builder.addDisallowedApplication(packageName)
+                validPackages.forEach { builder.addDisallowedApplication(it) }
+            }
+            else -> {
+                builder.addDisallowedApplication(packageName)
+            }
+        }
+
+        appliedAppRoutingMode = when (mode) {
+            "allowlist", "denylist" -> mode
+            else -> "all"
+        }
+        appliedAppPackageCount = validPackages.size
     }
 
     private fun registerNetworkMonitor() {
@@ -367,6 +416,8 @@ class KarinVpnService : VpnService() {
         const val ACTION_STOP = "com.vivagushter.karincore.vpn.STOP"
         const val EXTRA_CONFIG_JSON = "config_json"
         const val EXTRA_MTU = "mtu"
+        const val EXTRA_APP_ROUTING_MODE = "app_routing_mode"
+        const val EXTRA_APP_PACKAGES = "app_packages"
         private const val CHANNEL_ID = "karincore_vpn"
         private const val NOTIFICATION_ID = 7301
         private const val HANDOVER_DEBOUNCE_MS = 1000L
@@ -381,5 +432,7 @@ class KarinVpnService : VpnService() {
         @Volatile var coreVersion: String? = null
         @Volatile var lastError: String? = null
         @Volatile var lastConfigJson: String? = null
+        @Volatile var appliedAppRoutingMode: String = "all"
+        @Volatile var appliedAppPackageCount: Int = 0
     }
 }

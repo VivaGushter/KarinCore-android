@@ -10,6 +10,8 @@ interface DnsConfig { type: string, url: string, ip: string }
 interface RouteProfile { id: string, name: string, defaultOutbound: string, rules: any, domDns?: DnsConfig, remDns?: DnsConfig, zonePriority?: ZoneKey[] }
 interface RoutingRule { type: string; value: string; }
 type ZoneKey = 'direct' | 'proxy' | 'block';
+type AppRoutingMode = 'all' | 'allowlist' | 'denylist';
+interface InstalledApp { label: string; packageName: string; system: boolean; }
 interface SubscriptionResult { links: string[]; importedRouting?: Record<ZoneKey, RoutingRule[]>; importedDns?: { domestic?: DnsConfig; remote?: DnsConfig }; }
 
 // **********************************
@@ -35,6 +37,13 @@ let currentZone: ZoneKey = 'proxy';
 let defaultOutbound: ZoneKey = 'proxy';
 let allowServerProxy = safeParse('karin_allow_server_proxy', false);
 let allowProxyLan = safeParse('karin_allow_proxy_lan', false);
+let appRoutingMode: AppRoutingMode = safeParse('karin_app_routing_mode', 'all');
+if (!['all', 'allowlist', 'denylist'].includes(appRoutingMode)) appRoutingMode = 'all';
+const savedAppPackages = safeParse('karin_app_packages', []);
+let selectedAppPackages = new Set<string>(
+    Array.isArray(savedAppPackages) ? savedAppPackages.filter((pkg: unknown) => typeof pkg === 'string') : []
+);
+let installedApps: InstalledApp[] = [];
 let isEditMode = false;
 let selectedLinks = new Set<string>();
 let selectedGroups = new Set<string>();
@@ -114,6 +123,13 @@ const themeLabel = document.getElementById('theme-label') as HTMLLabelElement | 
 const btnImportFile = document.getElementById('btn-import-file') as HTMLButtonElement | null;
 const importFileInput = document.getElementById('import-file-input') as HTMLInputElement | null;
 const toggleServerProxy = document.getElementById('toggle-server-proxy') as HTMLInputElement | null;
+const androidAppRoutingSection = document.getElementById('android-app-routing-section') as HTMLDivElement | null;
+const appRoutingModeSelect = document.getElementById('android-app-routing-mode') as HTMLSelectElement | null;
+const appRoutingChoose = document.getElementById('android-app-routing-choose') as HTMLButtonElement | null;
+const appRoutingSummary = document.getElementById('android-app-routing-summary') as HTMLSpanElement | null;
+const appRoutingModal = document.getElementById('android-app-modal') as HTMLDialogElement | null;
+const appRoutingSearch = document.getElementById('android-app-search') as HTMLInputElement | null;
+const appRoutingList = document.getElementById('android-app-list') as HTMLDivElement | null;
 
 const domType = document.getElementById('dns-dom-type') as HTMLSelectElement | null;
 const domUrl = document.getElementById('dns-dom-url') as HTMLInputElement | null;
@@ -567,6 +583,12 @@ async function connectProxy(link: string) {
         const dDns = safeParse('karin_dns_dom', {type:"doh", url:"https://dns.yandex.ru/dns-query", ip:"77.88.8.8"});
         const rDns = safeParse('karin_dns_rem', {type:"doh", url:"https://1.1.1.1/dns-query", ip:"1.1.1.1"});
     
+        if (appRoutingMode === 'allowlist' && selectedAppPackages.size === 0) {
+            alert(t('settings_app_routing_required'));
+            if(statusText) statusText.innerText = t('status_inactive');
+            return;
+        }
+
         const result = await invoke('start_proxy', { 
             vlessLink: link, 
             routingState: routingState, 
@@ -575,7 +597,9 @@ async function connectProxy(link: string) {
             allowServerProxy: allowServerProxy,
             zonePriority: zonePriority,
             proxyLan: allowProxyLan,
-            killSwitch: localStorage.getItem('karin_kill_switch') === 'true'
+            killSwitch: localStorage.getItem('karin_kill_switch') === 'true',
+            appRoutingMode,
+            appPackages: Array.from(selectedAppPackages)
         });
         
         if (result === "OK") { 
@@ -1092,6 +1116,76 @@ async function checkApplicationUpdates() {
     }
 }
 
+function saveAppRoutingSettings() {
+    localStorage.setItem('karin_app_routing_mode', JSON.stringify(appRoutingMode));
+    localStorage.setItem('karin_app_packages', JSON.stringify(Array.from(selectedAppPackages)));
+}
+
+function renderAppRoutingSummary() {
+    if (!appRoutingSummary || !appRoutingChoose) return;
+    const selected = selectedAppPackages.size;
+    appRoutingSummary.textContent = `${selected} ${t('settings_app_routing_selected')}`;
+    appRoutingChoose.disabled = appRoutingMode === 'all';
+    appRoutingChoose.style.opacity = appRoutingMode === 'all' ? '0.55' : '1';
+}
+
+function renderInstalledApps(filter = '') {
+    if (!appRoutingList) return;
+    appRoutingList.innerHTML = '';
+    const query = filter.trim().toLowerCase();
+
+    installedApps
+        .filter(app => !query || app.label.toLowerCase().includes(query) || app.packageName.toLowerCase().includes(query))
+        .forEach(app => {
+            const row = document.createElement('label');
+            row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 8px;border-bottom:1px solid var(--border-color);cursor:pointer;';
+
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.checked = selectedAppPackages.has(app.packageName);
+            checkbox.addEventListener('change', () => {
+                if (checkbox.checked) selectedAppPackages.add(app.packageName);
+                else selectedAppPackages.delete(app.packageName);
+                saveAppRoutingSettings();
+                renderAppRoutingSummary();
+            });
+
+            const text = document.createElement('div');
+            text.style.cssText = 'min-width:0;flex:1;';
+
+            const label = document.createElement('div');
+            label.textContent = app.label;
+            label.style.cssText = 'font-size:13px;color:var(--text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+
+            const pkg = document.createElement('div');
+            pkg.textContent = app.packageName + (app.system ? ` · ${t('settings_app_routing_system')}` : '');
+            pkg.style.cssText = 'font-size:10px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+
+            text.append(label, pkg);
+            row.append(checkbox, text);
+            appRoutingList.appendChild(row);
+        });
+}
+
+async function initAndroidAppRouting() {
+    try {
+        const apps = await invoke<InstalledApp[]>('get_installed_apps');
+        if (!Array.isArray(apps) || apps.length === 0) return;
+
+        installedApps = apps;
+        if (androidAppRoutingSection) androidAppRoutingSection.style.display = 'block';
+        if (appRoutingModeSelect) appRoutingModeSelect.value = appRoutingMode;
+
+        const installedPackageNames = new Set(installedApps.map(app => app.packageName));
+        selectedAppPackages = new Set(Array.from(selectedAppPackages).filter(pkg => installedPackageNames.has(pkg)));
+        saveAppRoutingSettings();
+        renderAppRoutingSummary();
+        renderInstalledApps();
+    } catch (error) {
+        console.debug('Per-app routing is unavailable on this platform:', error);
+    }
+}
+
 // **********************************
 // INITIALIZATION & EVENT LISTENERS
 // **********************************
@@ -1126,6 +1220,7 @@ function init() {
     renderAboutPage();
     loadDnsState(); 
     renderRoutingProfiles();
+    void initAndroidAppRouting();
     
     if (currentTheme === 'light') {
         document.documentElement.setAttribute('data-theme', 'light');
@@ -1213,6 +1308,27 @@ function init() {
             applyKarinAssistantVisibility();
         });
     }
+
+    appRoutingModeSelect?.addEventListener('change', (e) => {
+        const value = (e.target as HTMLSelectElement).value as AppRoutingMode;
+        appRoutingMode = ['all', 'allowlist', 'denylist'].includes(value) ? value : 'all';
+        saveAppRoutingSettings();
+        renderAppRoutingSummary();
+    });
+
+    appRoutingChoose?.addEventListener('click', () => {
+        if (appRoutingMode === 'all') return;
+        renderInstalledApps(appRoutingSearch?.value || '');
+        appRoutingModal?.showModal();
+    });
+
+    appRoutingSearch?.addEventListener('input', () => {
+        renderInstalledApps(appRoutingSearch.value);
+    });
+
+    document.getElementById('android-app-modal-close')?.addEventListener('click', () => {
+        appRoutingModal?.close();
+    });
 
     const killSwitchToggle = document.getElementById('kill-switch-toggle') as HTMLInputElement | null;
     if (killSwitchToggle) {

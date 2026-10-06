@@ -2,7 +2,7 @@ mod error;
 mod models;
 
 pub use error::{Error, Result};
-pub use models::{PrepareResult, StartRequest, VpnStatus};
+pub use models::{InstalledApp, InstalledAppsResult, PrepareResult, StartRequest, VpnStatus};
 
 use tauri::{Manager, Runtime, plugin::TauriPlugin};
 
@@ -42,6 +42,18 @@ impl<R: Runtime> KarinVpn<R> {
     #[cfg(not(target_os = "android"))]
     pub fn start(&self, _request: StartRequest) -> Result<VpnStatus> {
         Err(Error::UnsupportedPlatform)
+    }
+
+    #[cfg(target_os = "android")]
+    pub fn list_apps(&self) -> Result<InstalledAppsResult> {
+        self.mobile_plugin_handle
+            .run_mobile_plugin("listApps", ())
+            .map_err(Error::from)
+    }
+
+    #[cfg(not(target_os = "android"))]
+    pub fn list_apps(&self) -> Result<InstalledAppsResult> {
+        Ok(InstalledAppsResult { apps: Vec::new() })
     }
 
     #[cfg(target_os = "android")]
@@ -90,6 +102,11 @@ async fn start<R: Runtime>(app: tauri::AppHandle<R>, request: StartRequest) -> R
 }
 
 #[tauri::command]
+async fn list_apps<R: Runtime>(app: tauri::AppHandle<R>) -> Result<InstalledAppsResult> {
+    app.karin_vpn().list_apps()
+}
+
+#[tauri::command]
 async fn stop<R: Runtime>(app: tauri::AppHandle<R>) -> Result<VpnStatus> {
     app.karin_vpn().stop()
 }
@@ -113,6 +130,6 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![prepare, start, stop, status])
+        .invoke_handler(tauri::generate_handler![prepare, start, list_apps, stop, status])
         .build()
 }

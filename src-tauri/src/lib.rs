@@ -11,6 +11,7 @@ use serde_json::{json, Value};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use tauri_plugin_karin_vpn::InstalledApp;
 #[cfg(target_os = "android")]
 use tauri_plugin_karin_vpn::{KarinVpnExt, StartRequest};
 
@@ -878,7 +879,9 @@ async fn start_openvpn_proxy(
     allow_server_proxy: bool,
     zone_priority: Vec<String>,
     proxy_lan: bool,
-    kill_switch: bool
+    kill_switch: bool,
+    _app_routing_mode: String,
+    _app_packages: Vec<String>
 ) -> Result<String, String> {
     let parsed_url = Url::parse(&ovpn_link).map_err(|e| e.to_string())?;
     
@@ -1482,6 +1485,8 @@ async fn start_proxy(
     zone_priority: Vec<String>,
     proxy_lan: bool,
     _kill_switch: bool,
+    app_routing_mode: String,
+    app_packages: Vec<String>,
 ) -> Result<String, String> {
     if vless_link.starts_with("ovpn://") || vless_link.starts_with("wg://") {
         return Err("OpenVPN/WireGuard chaining is not implemented on Android yet".into());
@@ -1583,6 +1588,8 @@ async fn start_proxy(
         .start(StartRequest {
             config_json: config.to_string(),
             mtu: 1500,
+            app_routing_mode,
+            app_packages,
         })
         .map_err(|e| e.to_string())?;
 
@@ -1590,6 +1597,21 @@ async fn start_proxy(
         return Err(err);
     }
     Ok("OK".into())
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn get_installed_apps(app: tauri::AppHandle) -> Result<Vec<InstalledApp>, String> {
+    app.karin_vpn()
+        .list_apps()
+        .map(|result| result.apps)
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn get_installed_apps() -> Result<Vec<InstalledApp>, String> {
+    Ok(Vec::new())
 }
 
 #[cfg(target_os = "android")]
@@ -1657,6 +1679,7 @@ pub fn run() {
             clear_logs,
             get_vpn_ip,
             check_ping,
+            get_installed_apps,
             export_profile,
             minimize_window,
             maximize_window,
