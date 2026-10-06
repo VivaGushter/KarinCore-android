@@ -23,32 +23,6 @@ Native Android subscription transport.
 - Release commit is validated by the same Android build workflow.
 
 
-## [0.1.0-alpha.11] - 2026-10-06
-
-Native Android subscription transport.
-
-### Changed
-- Android subscription downloads no longer use Rust `reqwest`.
-- Subscription HTTP is performed natively in Kotlin through `HttpURLConnection`.
-- Rust now receives the downloaded text and keeps ownership of KarinCore subscription parsing, routing import and DNS import.
-- Desktop subscription loading continues to use the Rust HTTP implementation.
-
-### Added
-- Native Android connect/read timeouts.
-- Manual redirect handling with a maximum of five redirects.
-- Gzip response handling.
-- 8 MiB native response-size guard.
-- Explicit TLS, timeout and native-network errors.
-- Independent 25 second frontend watchdog around the Tauri subscription invocation.
-
-### Fixed
-- The subscription dialog can no longer remain in Loading indefinitely if the Android native/Tauri request never resolves.
-
-### Verified
-- Feature commit completes the full arm64 debug APK build in GitHub Actions.
-- Release commit is validated by the same Android build workflow.
-
-
 ## [0.1.0-alpha.10] - 2026-10-06
 
 Subscription loading reliability.
