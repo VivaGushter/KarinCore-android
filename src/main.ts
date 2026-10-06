@@ -13,6 +13,15 @@ type ZoneKey = 'direct' | 'proxy' | 'block';
 type AppRoutingMode = 'all' | 'allowlist' | 'denylist';
 interface InstalledApp { label: string; packageName: string; system: boolean; }
 interface RuntimeInfo { platform: 'android' | 'desktop'; version: string; updateRepo: string; }
+interface VpnRuntimeStatus {
+    running: boolean;
+    starting: boolean;
+    coreRunning: boolean;
+    reconnecting: boolean;
+    tunFd?: number | null;
+    coreVersion?: string | null;
+    lastError?: string | null;
+}
 interface SubscriptionResult { links: string[]; importedRouting?: Record<ZoneKey, RoutingRule[]>; importedDns?: { domestic?: DnsConfig; remote?: DnsConfig }; }
 
 // **********************************
@@ -30,6 +39,10 @@ function safeParse(key: string, fallback: any): any {
 }
 
 let runtimeInfo: RuntimeInfo = { platform: 'desktop', version: '0.0.0', updateRepo: 'detestern/KarinCore' };
+let nativeVpnRunning = false;
+let nativeVpnStarting = false;
+let nativeVpnCoreRunning = false;
+let nativeVpnReconnecting = false;
 let currentTheme = localStorage.getItem('karin_theme') || 'dark';
 let currentLang = localStorage.getItem('karin_lang') || 'en';
 let activeLink: string | null = sessionStorage.getItem('karin_active_link') || null;
@@ -604,10 +617,15 @@ async function connectProxy(link: string) {
             appPackages: Array.from(selectedAppPackages)
         });
         
-        if (result === "OK") { 
-            activeLink = link; 
+        if (result === "OK") {
+            nativeVpnRunning = runtimeInfo.platform === 'android';
+            nativeVpnStarting = false;
+            nativeVpnCoreRunning = runtimeInfo.platform === 'android';
+            nativeVpnReconnecting = false;
+            activeLink = link;
             selectedProfileUrl = link;
             localStorage.setItem('karin_selected_profile', link);
+            localStorage.setItem('karin_active_link', link);
             sessionStorage.setItem('karin_active_link', link); 
             updateStatusUI(); 
             renderLinks(); 
@@ -620,9 +638,14 @@ async function connectProxy(link: string) {
     }
 }
 
-async function disconnectProxy() { 
-    await invoke('stop_proxy'); 
-    activeLink = null; 
+async function disconnectProxy() {
+    await invoke('stop_proxy');
+    nativeVpnRunning = false;
+    nativeVpnStarting = false;
+    nativeVpnCoreRunning = false;
+    nativeVpnReconnecting = false;
+    activeLink = null;
+    localStorage.removeItem('karin_active_link');
     sessionStorage.removeItem('karin_active_link'); 
     updateStatusUI(); 
     renderLinks(); 
@@ -694,17 +717,23 @@ function typeHeroCoreText(newText: string) {
 function updateStatusUI() {
     const heroCircle = document.getElementById('hero-circle');
     const wasConnected = heroCircle?.classList.contains('connected');
-    const nowConnected = !!activeLink;
+    const nowConnected = nativeVpnRunning || nativeVpnStarting || nativeVpnReconnecting || !!activeLink;
     heroCircle?.classList.toggle('connected', nowConnected);
     if (wasConnected !== nowConnected) {
         typeHeroCoreText(nowConnected ? 'connect' : 'null');
     }
     updateHeroProfileName();
-    if (activeLink) {
-        if(statusText) { statusText.innerText = t('status_active'); statusText.className = "status-active"; }
-        if(btnDisconnect) btnDisconnect.style.display = "block"; 
-        if(btnPing) { btnPing.style.display = "block"; btnPing.innerText = t('btn_ping'); }
-        if(statusIpBox) statusIpBox.style.display = "block"; 
+    if (nowConnected) {
+        if(statusText) {
+            statusText.innerText = (nativeVpnStarting || nativeVpnReconnecting) ? t('status_connecting') : t('status_active');
+            statusText.className = (nativeVpnStarting || nativeVpnReconnecting) ? "status-connecting" : "status-active";
+        }
+        if(btnDisconnect) btnDisconnect.style.display = "block";
+        if(btnPing) {
+            btnPing.style.display = nativeVpnCoreRunning || runtimeInfo.platform !== 'android' ? "block" : "none";
+            btnPing.innerText = t('btn_ping');
+        }
+        if(statusIpBox) statusIpBox.style.display = nativeVpnCoreRunning || runtimeInfo.platform !== 'android' ? "block" : "none"; 
         if(statusIp) statusIp.innerText = "...";
         invoke<string>('get_vpn_ip').then(ip => { if(statusIp) statusIp.innerText = ip; }).catch(() => { if(statusIp) statusIp.innerText = "Error"; });
     } else {
@@ -1194,6 +1223,43 @@ async function initAndroidAppRouting() {
 // **********************************
 // INITIALIZATION & EVENT LISTENERS
 // **********************************
+async function restoreAndroidVpnState() {
+    if (runtimeInfo.platform !== 'android') return;
+
+    try {
+        const status = await invoke<VpnRuntimeStatus>('get_vpn_runtime_status');
+        nativeVpnRunning = !!status.running;
+        nativeVpnStarting = !!status.starting;
+        nativeVpnCoreRunning = !!status.coreRunning;
+        nativeVpnReconnecting = !!status.reconnecting;
+
+        const nativeActive = nativeVpnRunning || nativeVpnStarting || nativeVpnCoreRunning || nativeVpnReconnecting;
+        if (nativeActive) {
+            const persistedActiveLink = localStorage.getItem('karin_active_link');
+            activeLink = persistedActiveLink || selectedProfileUrl || activeLink;
+            if (activeLink) {
+                sessionStorage.setItem('karin_active_link', activeLink);
+            }
+        } else {
+            activeLink = null;
+            localStorage.removeItem('karin_active_link');
+            sessionStorage.removeItem('karin_active_link');
+        }
+
+        if (status.lastError) {
+            console.debug('Native VPN status:', status.lastError);
+        }
+    } catch (error) {
+        console.debug('Unable to restore Android VPN state:', error);
+        nativeVpnRunning = false;
+        nativeVpnStarting = false;
+        nativeVpnCoreRunning = false;
+        nativeVpnReconnecting = false;
+        activeLink = null;
+        sessionStorage.removeItem('karin_active_link');
+    }
+}
+
 async function init() {
     try {
         runtimeInfo = await invoke<RuntimeInfo>('get_runtime_info');
@@ -1202,6 +1268,7 @@ async function init() {
     }
 
     document.documentElement.classList.toggle('platform-android', runtimeInfo.platform === 'android');
+    await restoreAndroidVpnState();
 
     const versionNodes = document.querySelectorAll('.app-version-text');
     versionNodes.forEach(node => { node.textContent = `v ${runtimeInfo.version}`; });

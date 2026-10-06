@@ -2,28 +2,25 @@
 
 All notable Android-port changes are tracked here.
 
-## [0.1.0-alpha.6] - 2026-10-06
+## [0.1.0-alpha.8] - 2026-10-06
 
-Mobile UI adaptation and Android document export.
+Native VPN state restoration and version metadata recovery.
 
 ### Added
-- Android system document picker export for routing-profile JSON files.
-- Android mobile layout class activated from native runtime metadata.
-- Safe-area aware spacing for notches, status bars and gesture navigation.
-- Narrow-screen routing columns stack vertically.
-- Mobile sizing for the connection core, dialogs and profile drawer.
-- Runtime metadata command exposing platform, application version and update repository.
+- Native VPN runtime-status command exposed to the frontend.
+- Android UI restores running, starting and reconnecting VPN state after Activity/WebView recreation.
+- Active profile hint is persisted while the native VPN is running so the reopened UI can display the correct profile.
 
 ### Changed
-- Desktop titlebar and window controls are hidden on Android.
-- Splash screen and sidebar use Android-safe full-height layout.
-- Application version in the UI now comes from `CARGO_PKG_VERSION`.
-- Android update checks target `VivaGushter/KarinCore-android`; desktop checks continue to target upstream KarinCore.
-- Update UI falls back to the installed version if GitHub release metadata is unavailable.
+- Native `VpnService` state is authoritative when the Android UI starts.
+- Stale session/local active-connection markers are removed when the native VPN service is no longer active.
+- Reconnecting/starting state is reflected as Connecting instead of incorrectly showing Disconnected.
+- Ping and VPN IP controls remain hidden until the native Xray core is running.
+- Version metadata is advanced monotonically after the interrupted alpha.6/alpha.7 documentation update.
 
 ### Verified
-- Complete arm64 debug APK build succeeds in GitHub Actions with the mobile UI and document picker integration.
-
+- Previous alpha.7 runtime-hardening build completed successfully in GitHub Actions.
+- Full alpha.8 arm64 debug APK validation is required by the release CI workflow.
 
 ## [0.1.0-alpha.7] - 2026-10-06
 

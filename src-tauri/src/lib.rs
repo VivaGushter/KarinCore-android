@@ -1698,6 +1698,35 @@ fn close_window(_window: tauri::Window) {
 }
 
 
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn get_vpn_runtime_status(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let status = app.karin_vpn().status().map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "running": status.running,
+        "starting": status.starting,
+        "coreRunning": status.core_running,
+        "reconnecting": status.reconnecting,
+        "tunFd": status.tun_fd,
+        "coreVersion": status.core_version,
+        "lastError": status.last_error
+    }))
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn get_vpn_runtime_status() -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({
+        "running": false,
+        "starting": false,
+        "coreRunning": false,
+        "reconnecting": false,
+        "tunFd": null,
+        "coreVersion": null,
+        "lastError": null
+    }))
+}
+
 #[tauri::command]
 fn get_runtime_info() -> serde_json::Value {
     serde_json::json!({
@@ -1741,7 +1770,8 @@ pub fn run() {
             maximize_window,
             close_window,
             open_browser,
-            get_runtime_info
+            get_runtime_info,
+            get_vpn_runtime_status
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
