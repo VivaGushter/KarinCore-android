@@ -2,6 +2,35 @@
 
 All notable Android-port changes are tracked here.
 
+## [0.1.0-alpha.9] - 2026-10-06
+
+Android Always-on VPN and system lockdown integration.
+
+### Added
+- Explicit Android Always-on VPN support for KarinCore's `VpnService`.
+- App-private persistence of the last successfully started generated Xray configuration, MTU and per-app routing state.
+- Restoration of the persisted VPN connection when Android starts the service for Always-on VPN, including after reboot.
+- Android VPN Settings shortcut from KarinCore Settings.
+- Native Always-on and lockdown status fields exposed to the frontend.
+- Android-specific system Kill Switch section replacing the desktop iptables toggle.
+
+### Changed
+- User-requested profile changes clear the previously persisted native connection before attempting the new profile, preventing stale Always-on restoration.
+- VPN permission revocation clears persisted restart state.
+- Manual disconnect is rejected while Android reports Always-on VPN active; the UI directs the user to system VPN Settings instead.
+- Desktop Kill Switch behavior remains unchanged on Linux.
+- Android sends `killSwitch: false` to the shared Rust command because system lockdown, not iptables, is the authoritative Android mechanism.
+
+### Safety
+- KarinCore does not attempt to enable lockdown programmatically.
+- System Always-on/lockdown configuration remains under Android user/device-policy control.
+- Only a configuration that previously reached a running Xray state is persisted for system restart.
+
+### Verified
+- Feature commit completes the full arm64 debug APK build in GitHub Actions.
+- Release commit is validated by the same Android build workflow.
+
+
 ## [0.1.0-alpha.8] - 2026-10-06
 
 Native VPN state restoration and version metadata recovery.

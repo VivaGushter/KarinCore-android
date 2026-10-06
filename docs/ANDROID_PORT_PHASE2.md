@@ -44,4 +44,4 @@ cf71680b776b9ca583747ba652f816b047a655eab875d8951e6141636d88bbd6
 
 ## Current verification boundary
 
-Static integration is based on KarinCore upstream 1.3.7 and the pinned AndroidLibXrayLite API. The full arm64 debug APK build completes successfully in GitHub Actions. Per-app routing, both network handover modes, native VPN/Xray event logs, Android document export and mobile layout are compile-validated. Real-device installation, tunnel establishment and traffic validation remain pending.
+Static integration is based on KarinCore upstream 1.3.7 and the pinned AndroidLibXrayLite API. The full arm64 debug APK build completes successfully in GitHub Actions. Per-app routing, both network handover modes, native VPN/Xray event logs, Android document export, mobile layout, UI state restoration and Always-on VPN restart support are compile-validated. Real-device installation, tunnel establishment and traffic validation remain pending.

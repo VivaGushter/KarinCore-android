@@ -2,7 +2,7 @@
   <img src="public/karincore-icon-main.png" alt="KarinCore" width="160"/>
   <h1>KarinCore Android</h1>
   <p>Android port of KarinCore powered by Tauri 2, Rust, Android VpnService and Xray-core.</p>
-  <p><strong>Current version: 0.1.0-alpha.8</strong></p>
+  <p><strong>Current version: 0.1.0-alpha.9</strong></p>
   <p><a href="README-ru.md">Русская версия</a></p>
 </div>
 
@@ -12,9 +12,9 @@ This repository is an experimental Android port of [detestern/KarinCore](https:/
 
 The shared KarinCore TypeScript UI and Rust parsing/routing logic are retained. Linux-specific tunnel setup is replaced on Android by a native `VpnService` bridge and Xray TUN integration.
 
-Version `0.1.0-alpha.8` is validated by a complete arm64 debug APK build in GitHub Actions. Real-device runtime validation is the next verification step.
+Version `0.1.0-alpha.9` is validated by a complete arm64 debug APK build in GitHub Actions. Real-device runtime validation is the next verification step.
 
-## Implemented through 0.1.0-alpha.8
+## Implemented through 0.1.0-alpha.9
 
 - Tauri 2 mobile entry point.
 - Native Android `VpnService`.
@@ -38,9 +38,12 @@ Version `0.1.0-alpha.8` is validated by a complete arm64 debug APK build in GitH
 - Android package-visibility query explicitly exposes launcher applications to the per-app selector on Android 11+.
 - Network recovery handles both make-before-break and break-before-make transitions.
 - UI connection state is restored from the native VPN service after Activity/WebView recreation; stale frontend state is discarded when the service is no longer active.
+- Android Always-on VPN is supported with persisted last-successful native connection state for system restarts and reboot recovery.
+- Android Settings integration exposes the system VPN screen for Always-on VPN and Block connections without VPN (lockdown) configuration.
+- Android reports Always-on/lockdown state in Settings and prevents misleading manual disconnect attempts while Always-on mode is active.
 - Android uses Rustls for `reqwest`; the desktop path keeps the upstream native TLS setup.
 
-Not implemented yet on Android: OpenVPN/WireGuard chaining and additional real-device UI/runtime polish.
+Not implemented yet on Android: OpenVPN/WireGuard chaining and additional real-device UI/runtime polish. Always-on/lockdown behavior still requires real-device validation across OEM Android variants.
 
 ## Build prerequisites
 

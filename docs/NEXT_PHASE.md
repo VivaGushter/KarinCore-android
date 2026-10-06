@@ -1,6 +1,6 @@
 # Phase 3 status
 
-Current version: `0.1.0-alpha.8`
+Current version: `0.1.0-alpha.9`
 
 ## Completed
 
@@ -14,13 +14,15 @@ Current version: `0.1.0-alpha.8`
 8. Mobile-specific layout, safe-area support and Android titlebar removal.
 9. Runtime version/update metadata.
 10. UI state restoration from the foreground VPN service after Activity/WebView recreation.
-11. CI-validated arm64 debug APK pipeline.
+11. Android Always-on VPN restart persistence and system lockdown settings integration.
+12. CI-validated arm64 debug APK pipeline.
 
 ## Planned
 
-1. IPv6 leak validation across Wi-Fi and cellular networks on a real device.
-2. WireGuard transport/chaining.
-3. OpenVPN transport/chaining.
-4. Further mobile UI polish from real-device testing.
+1. Real-device validation: connect/disconnect, VLESS/Reality traffic, DNS, IPv4/IPv6, per-app modes and Wi-Fi/cellular handovers.
+2. Real-device validation of Always-on VPN and Block connections without VPN across reboot.
+3. WireGuard transport/chaining.
+4. OpenVPN transport/chaining.
+5. Further mobile UI polish from device testing.
 
-Real-device testing now provides more value than adding additional transport features blindly.
+At this stage real-device testing has higher value than adding more transports without runtime evidence.
