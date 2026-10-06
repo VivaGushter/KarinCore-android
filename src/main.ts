@@ -22,6 +22,8 @@ interface VpnRuntimeStatus {
     reconnecting: boolean;
     alwaysOn: boolean;
     lockdown: boolean;
+    appRoutingMode?: string;
+    appPackageCount?: number;
     tunFd?: number | null;
     coreVersion?: string | null;
     lastError?: string | null;
@@ -118,8 +120,10 @@ function cleanEmptyGroups() {
 const logOutput = document.getElementById('log-output') as HTMLPreElement | null;
 const toggleLogs = document.getElementById('toggle-logs') as HTMLInputElement | null;
 const androidLogActions = document.getElementById('android-log-actions') as HTMLDivElement | null;
+const btnVpnSelfTest = document.getElementById('btn-vpn-self-test') as HTMLButtonElement | null;
 const btnExportDiagnostics = document.getElementById('btn-export-diagnostics') as HTMLButtonElement | null;
 const btnClearNativeLogs = document.getElementById('btn-clear-native-logs') as HTMLButtonElement | null;
+const vpnSelfTestOutput = document.getElementById('vpn-self-test-output') as HTMLPreElement | null;
 const linkInput = document.getElementById('link-input') as HTMLInputElement | null;
 const btnSave = document.getElementById('btn-save') as HTMLButtonElement | null;
 const linksContainer = document.getElementById('links-container') as HTMLDivElement | null;
@@ -684,6 +688,77 @@ async function disconnectProxy() {
     updateStatusUI(); 
     renderLinks(); 
     typeKarinMessage('karin_disconnect');
+}
+
+async function runVpnSelfTest() {
+    if (!vpnSelfTestOutput || !btnVpnSelfTest) return;
+
+    const original = btnVpnSelfTest.innerText;
+    btnVpnSelfTest.disabled = true;
+    btnVpnSelfTest.innerText = t('logs_self_test_running');
+    vpnSelfTestOutput.style.display = 'block';
+    vpnSelfTestOutput.textContent = t('logs_self_test_running');
+
+    const lines: string[] = [];
+    const mark = (ok: boolean) => ok ? '✓' : '✗';
+
+    try {
+        const status = await invoke<VpnRuntimeStatus>('get_vpn_runtime_status');
+        const serviceActive = !!status.running || !!status.starting || !!status.reconnecting;
+        const coreActive = !!status.coreRunning;
+        const tunActive = typeof status.tunFd === 'number' && status.tunFd >= 0;
+
+        lines.push(`${mark(serviceActive)} ${t('logs_self_test_service')}: ${serviceActive ? t('status_active') : t('status_inactive')}`);
+        lines.push(`${mark(coreActive)} Xray: ${coreActive ? t('status_active') : t('status_inactive')}`);
+        lines.push(`${mark(tunActive)} TUN: ${tunActive ? 'fd=' + status.tunFd : t('status_inactive')}`);
+
+        if (status.reconnecting) {
+            lines.push(`… ${t('logs_self_test_reconnecting')}`);
+        }
+        if (status.alwaysOn) {
+            lines.push(`• Always-on: ${status.lockdown ? 'ON + lockdown' : 'ON'}`);
+        }
+        if (status.appRoutingMode) {
+            lines.push(`• Per-app: ${status.appRoutingMode} (${status.appPackageCount || 0})`);
+        }
+        if (status.lastError) {
+            lines.push(`! ${t('logs_self_test_last_error')}: ${status.lastError}`);
+        }
+
+        if (!coreActive || !tunActive) {
+            lines.push('');
+            lines.push(t('logs_self_test_not_connected'));
+            vpnSelfTestOutput.textContent = lines.join('\n');
+            return;
+        }
+
+        const [pingResult, ipResult] = await Promise.allSettled([
+            invoke<string>('check_ping'),
+            invoke<string>('get_vpn_ip')
+        ]);
+
+        if (pingResult.status === 'fulfilled') {
+            lines.push(`✓ ${t('logs_self_test_proxy_path')}: ${pingResult.value}`);
+        } else {
+            lines.push(`✗ ${t('logs_self_test_proxy_path')}: ${String(pingResult.reason)}`);
+        }
+
+        if (ipResult.status === 'fulfilled') {
+            lines.push(`✓ ${t('logs_self_test_external_ip')}: ${ipResult.value.trim()}`);
+        } else {
+            lines.push(`✗ ${t('logs_self_test_external_ip')}: ${String(ipResult.reason)}`);
+        }
+
+        const passed = pingResult.status === 'fulfilled' && ipResult.status === 'fulfilled';
+        lines.push('');
+        lines.push(passed ? t('logs_self_test_ok') : t('logs_self_test_failed'));
+        vpnSelfTestOutput.textContent = lines.join('\n');
+    } catch (error) {
+        vpnSelfTestOutput.textContent = `${t('logs_self_test_failed')}\n${String(error)}`;
+    } finally {
+        btnVpnSelfTest.disabled = false;
+        btnVpnSelfTest.innerText = original;
+    }
 }
 
 async function fetchLogs() {
@@ -1639,6 +1714,10 @@ async function init() {
         }); 
     });
   
+    btnVpnSelfTest?.addEventListener('click', () => {
+        void runVpnSelfTest();
+    });
+
     btnExportDiagnostics?.addEventListener('click', async () => {
         const original = btnExportDiagnostics.innerText;
         btnExportDiagnostics.disabled = true;
