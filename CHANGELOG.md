@@ -2,6 +2,26 @@
 
 All notable Android-port changes are tracked here.
 
+## [0.1.0-alpha.10] - 2026-10-06
+
+Subscription loading reliability.
+
+### Fixed
+- Subscription HTTP requests no longer wait indefinitely.
+- Added an 8 second connection timeout and 20 second total request timeout.
+- Redirect chains are limited to five hops.
+- Oversized subscription responses above 8 MiB are rejected.
+- Timeout, connection and TLS-related failures are surfaced to the UI with useful messages.
+- The subscription button always leaves Loading state once the backend returns an error.
+
+### Changed
+- Subscription requests now identify as KarinCore Android instead of using the old v2rayNG user-agent string.
+
+### Verified
+- Feature commit completes the full arm64 debug APK build in GitHub Actions.
+- Release commit is validated by the same Android build workflow.
+
+
 ## [0.1.0-alpha.9] - 2026-10-06
 
 Android Always-on VPN and system lockdown integration.
