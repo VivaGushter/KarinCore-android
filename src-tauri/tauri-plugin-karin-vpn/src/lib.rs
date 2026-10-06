@@ -2,7 +2,7 @@ mod error;
 mod models;
 
 pub use error::{Error, Result};
-pub use models::{ClearLogsResult, InstalledApp, InstalledAppsResult, LogsResult, PrepareResult, StartRequest, VpnStatus};
+pub use models::{ClearLogsResult, InstalledApp, InstalledAppsResult, LogsResult, PrepareResult, SaveDocumentRequest, SaveDocumentResult, StartRequest, VpnStatus};
 
 use tauri::{Manager, Runtime, plugin::TauriPlugin};
 
@@ -81,6 +81,18 @@ impl<R: Runtime> KarinVpn<R> {
     }
 
     #[cfg(target_os = "android")]
+    pub fn save_document(&self, request: SaveDocumentRequest) -> Result<SaveDocumentResult> {
+        self.mobile_plugin_handle
+            .run_mobile_plugin("saveDocument", request)
+            .map_err(Error::from)
+    }
+
+    #[cfg(not(target_os = "android"))]
+    pub fn save_document(&self, _request: SaveDocumentRequest) -> Result<SaveDocumentResult> {
+        Err(Error::UnsupportedPlatform)
+    }
+
+    #[cfg(target_os = "android")]
     pub fn stop(&self) -> Result<VpnStatus> {
         self.mobile_plugin_handle
             .run_mobile_plugin("stop", ())
@@ -141,6 +153,14 @@ async fn clear_logs<R: Runtime>(app: tauri::AppHandle<R>) -> Result<ClearLogsRes
 }
 
 #[tauri::command]
+async fn save_document<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    request: SaveDocumentRequest,
+) -> Result<SaveDocumentResult> {
+    app.karin_vpn().save_document(request)
+}
+
+#[tauri::command]
 async fn stop<R: Runtime>(app: tauri::AppHandle<R>) -> Result<VpnStatus> {
     app.karin_vpn().stop()
 }
@@ -164,6 +184,6 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![prepare, start, list_apps, logs, clear_logs, stop, status])
+        .invoke_handler(tauri::generate_handler![prepare, start, list_apps, logs, clear_logs, save_document, stop, status])
         .build()
 }

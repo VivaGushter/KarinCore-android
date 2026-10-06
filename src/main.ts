@@ -12,6 +12,7 @@ interface RoutingRule { type: string; value: string; }
 type ZoneKey = 'direct' | 'proxy' | 'block';
 type AppRoutingMode = 'all' | 'allowlist' | 'denylist';
 interface InstalledApp { label: string; packageName: string; system: boolean; }
+interface RuntimeInfo { platform: 'android' | 'desktop'; version: string; updateRepo: string; }
 interface SubscriptionResult { links: string[]; importedRouting?: Record<ZoneKey, RoutingRule[]>; importedDns?: { domestic?: DnsConfig; remote?: DnsConfig }; }
 
 // **********************************
@@ -28,6 +29,7 @@ function safeParse(key: string, fallback: any): any {
     }
 }
 
+let runtimeInfo: RuntimeInfo = { platform: 'desktop', version: '0.0.0', updateRepo: 'detestern/KarinCore' };
 let currentTheme = localStorage.getItem('karin_theme') || 'dark';
 let currentLang = localStorage.getItem('karin_lang') || 'en';
 let activeLink: string | null = sessionStorage.getItem('karin_active_link') || null;
@@ -1086,20 +1088,23 @@ async function checkApplicationUpdates() {
     if (!statusEl) return;
 
     try {
-        const CURRENT_VERSION = "1.3.7";
-
-        const response = await fetch("https://api.github.com/repos/detestern/KarinCore/releases/latest");
-        if (!response.ok) return;
+        const apiUrl = `https://api.github.com/repos/${runtimeInfo.updateRepo}/releases/latest`;
+        const releasesUrl = `https://github.com/${runtimeInfo.updateRepo}/releases/latest`;
+        const response = await fetch(apiUrl);
+        if (!response.ok) {
+            statusEl.innerHTML = `<span style="opacity:0.6;">v${runtimeInfo.version}</span>`;
+            return;
+        }
 
         const data = await response.json();
-        const latestVersion = data.tag_name.replace('v', '').trim();
+        const latestVersion = String(data.tag_name || '').replace(/^v/, '').trim();
 
-        if (latestVersion === CURRENT_VERSION) {
-            statusEl.innerHTML = `<span style="opacity: 0.6;">${t('update_current')}</span>`;
+        if (!latestVersion || latestVersion === runtimeInfo.version) {
+            statusEl.innerHTML = `<span style="opacity: 0.6;">v${runtimeInfo.version} · ${t('update_current')}</span>`;
         } else {
             statusEl.innerHTML = `
-                <a class="update-link" href="https://github.com/detestern/KarinCore/releases/latest" target="_blank">
-                    ${t('update_available')}
+                <a class="update-link" href="${releasesUrl}" target="_blank">
+                    v${runtimeInfo.version} · ${t('update_available')}
                     <span class="notification-dot"></span>
                 </a>
             `;
@@ -1107,12 +1112,12 @@ async function checkApplicationUpdates() {
             const link = statusEl.querySelector('.update-link');
             link?.addEventListener('click', (e) => {
                 e.preventDefault();
-                invoke('open_browser', { url: "https://github.com/detestern/KarinCore/releases/latest" })
-                    .catch(console.error);
+                invoke('open_browser', { url: releasesUrl }).catch(console.error);
             });
         }
     } catch (err) {
         console.error("Update check failed:", err);
+        statusEl.innerHTML = `<span style="opacity:0.6;">v${runtimeInfo.version}</span>`;
     }
 }
 
@@ -1189,10 +1194,23 @@ async function initAndroidAppRouting() {
 // **********************************
 // INITIALIZATION & EVENT LISTENERS
 // **********************************
-function init() {
-    document.getElementById('titlebar-minimize')?.addEventListener('click', () => invoke('minimize_window'));
-    document.getElementById('titlebar-maximize')?.addEventListener('click', () => invoke('maximize_window'));
-    document.getElementById('titlebar-close')?.addEventListener('click', () => invoke('close_window'));
+async function init() {
+    try {
+        runtimeInfo = await invoke<RuntimeInfo>('get_runtime_info');
+    } catch (error) {
+        console.debug('Runtime metadata unavailable:', error);
+    }
+
+    document.documentElement.classList.toggle('platform-android', runtimeInfo.platform === 'android');
+
+    const versionNodes = document.querySelectorAll('.app-version-text');
+    versionNodes.forEach(node => { node.textContent = `v ${runtimeInfo.version}`; });
+
+    if (runtimeInfo.platform !== 'android') {
+        document.getElementById('titlebar-minimize')?.addEventListener('click', () => invoke('minimize_window'));
+        document.getElementById('titlebar-maximize')?.addEventListener('click', () => invoke('maximize_window'));
+        document.getElementById('titlebar-close')?.addEventListener('click', () => invoke('close_window'));
+    }
 
     setTimeout(() => {
         const splash = document.getElementById('splash-screen');
@@ -1741,7 +1759,7 @@ document.addEventListener('click', async (e) => {
 });
 
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('DOMContentLoaded', () => { void init(); });
 } else {
-    init();
+    void init();
 }

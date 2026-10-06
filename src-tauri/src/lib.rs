@@ -13,6 +13,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use tauri_plugin_karin_vpn::InstalledApp;
 #[cfg(target_os = "android")]
+use tauri_plugin_karin_vpn::SaveDocumentRequest;
+#[cfg(target_os = "android")]
 use tauri_plugin_karin_vpn::{KarinVpnExt, StartRequest};
 
 // **********************************
@@ -1655,8 +1657,23 @@ fn stop_proxy(
 
 #[cfg(target_os = "android")]
 #[tauri::command]
-async fn export_profile(_filename: String, _content: String) -> Result<String, String> {
-    Err("Экспорт через Android document picker будет добавлен в следующем этапе".into())
+async fn export_profile(
+    app: tauri::AppHandle,
+    filename: String,
+    content: String,
+) -> Result<String, String> {
+    app.karin_vpn()
+        .save_document(SaveDocumentRequest {
+            filename,
+            content,
+            mime_type: "application/json".to_string(),
+        })
+        .map(|result| {
+            result.uri
+                .map(|uri| format!("Сохранено: {}", uri))
+                .unwrap_or_else(|| "Сохранено".to_string())
+        })
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(target_os = "android")]
@@ -1680,6 +1697,19 @@ fn close_window(_window: tauri::Window) {
     // The Activity/WebView lifecycle must not stop the foreground VPN service.
 }
 
+
+#[tauri::command]
+fn get_runtime_info() -> serde_json::Value {
+    serde_json::json!({
+        "platform": if cfg!(target_os = "android") { "android" } else { "desktop" },
+        "version": env!("CARGO_PKG_VERSION"),
+        "updateRepo": if cfg!(target_os = "android") {
+            "VivaGushter/KarinCore-android"
+        } else {
+            "detestern/KarinCore"
+        }
+    })
+}
 
 // **********************************
 // MAIN APPLICATION ENTRY POINT
@@ -1710,7 +1740,8 @@ pub fn run() {
             minimize_window,
             maximize_window,
             close_window,
-            open_browser
+            open_browser,
+            get_runtime_info
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

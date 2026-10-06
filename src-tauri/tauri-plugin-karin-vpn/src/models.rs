@@ -63,3 +63,22 @@ pub struct LogsResult {
 pub struct ClearLogsResult {
     pub cleared: bool,
 }
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveDocumentRequest {
+    pub filename: String,
+    pub content: String,
+    #[serde(default = "default_document_mime")]
+    pub mime_type: String,
+}
+
+fn default_document_mime() -> String { "application/json".to_string() }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveDocumentResult {
+    pub saved: bool,
+    pub uri: Option<String>,
+}

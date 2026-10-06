@@ -27,9 +27,17 @@ class StartArgs {
     var appPackages: Array<String> = emptyArray()
 }
 
+@InvokeArg
+class SaveDocumentArgs {
+    lateinit var filename: String
+    lateinit var content: String
+    var mimeType: String = "application/json"
+}
+
 @TauriPlugin
 class KarinVpnPlugin(private val activity: Activity) : Plugin(activity) {
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var pendingDocumentContent: String? = null
 
     @Command
     fun prepare(invoke: Invoke) {
@@ -173,6 +181,61 @@ class KarinVpnPlugin(private val activity: Activity) : Plugin(activity) {
             })
         } catch (ex: Exception) {
             invoke.reject(ex.message ?: "Failed to list installed applications")
+        }
+    }
+
+    @Command
+    fun saveDocument(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(SaveDocumentArgs::class.java)
+            if (args.filename.isBlank()) {
+                invoke.reject("DOCUMENT_FILENAME_EMPTY")
+                return
+            }
+
+            pendingDocumentContent = args.content
+
+            val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = args.mimeType.ifBlank { "application/json" }
+                putExtra(Intent.EXTRA_TITLE, args.filename)
+            }
+
+            startActivityForResult(invoke, intent, "saveDocumentResult")
+        } catch (ex: Exception) {
+            pendingDocumentContent = null
+            invoke.reject(ex.message ?: "Failed to open Android document picker")
+        }
+    }
+
+    @ActivityCallback
+    private fun saveDocumentResult(invoke: Invoke, result: ActivityResult) {
+        val content = pendingDocumentContent
+        pendingDocumentContent = null
+
+        when (result.resultCode) {
+            Activity.RESULT_OK -> {
+                try {
+                    val uri = result.data?.data
+                        ?: throw IllegalStateException("Android document picker returned no URI")
+                    val payload = content
+                        ?: throw IllegalStateException("Document content is no longer available")
+
+                    activity.contentResolver.openOutputStream(uri, "wt")?.use { stream ->
+                        stream.write(payload.toByteArray(Charsets.UTF_8))
+                        stream.flush()
+                    } ?: throw IllegalStateException("Unable to open selected document for writing")
+
+                    invoke.resolve(JSObject().apply {
+                        put("saved", true)
+                        put("uri", uri.toString())
+                    })
+                } catch (ex: Exception) {
+                    invoke.reject(ex.message ?: "Failed to save document")
+                }
+            }
+            Activity.RESULT_CANCELED -> invoke.reject("Отменено")
+            else -> invoke.reject("Failed to save document")
         }
     }
 
