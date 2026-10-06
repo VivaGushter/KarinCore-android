@@ -117,6 +117,9 @@ function cleanEmptyGroups() {
 // **********************************
 const logOutput = document.getElementById('log-output') as HTMLPreElement | null;
 const toggleLogs = document.getElementById('toggle-logs') as HTMLInputElement | null;
+const androidLogActions = document.getElementById('android-log-actions') as HTMLDivElement | null;
+const btnExportDiagnostics = document.getElementById('btn-export-diagnostics') as HTMLButtonElement | null;
+const btnClearNativeLogs = document.getElementById('btn-clear-native-logs') as HTMLButtonElement | null;
 const linkInput = document.getElementById('link-input') as HTMLInputElement | null;
 const btnSave = document.getElementById('btn-save') as HTMLButtonElement | null;
 const linksContainer = document.getElementById('links-container') as HTMLDivElement | null;
@@ -1374,6 +1377,9 @@ async function init() {
     }
 
     document.documentElement.classList.toggle('platform-android', runtimeInfo.platform === 'android');
+    if (androidLogActions) {
+        androidLogActions.style.display = runtimeInfo.platform === 'android' ? 'flex' : 'none';
+    }
     renderAndroidSystemVpnStatus();
     await restoreAndroidVpnState();
 
@@ -1633,6 +1639,33 @@ async function init() {
         }); 
     });
   
+    btnExportDiagnostics?.addEventListener('click', async () => {
+        const original = btnExportDiagnostics.innerText;
+        btnExportDiagnostics.disabled = true;
+        btnExportDiagnostics.innerText = t('logs_exporting');
+
+        try {
+            const result = await invoke<string>('export_diagnostics');
+            alert(result);
+        } catch (error) {
+            if (String(error) !== 'Отменено') {
+                alert(`${t('logs_export_failed')}: ${error}`);
+            }
+        } finally {
+            btnExportDiagnostics.disabled = false;
+            btnExportDiagnostics.innerText = original;
+        }
+    });
+
+    btnClearNativeLogs?.addEventListener('click', async () => {
+        try {
+            await invoke('clear_logs');
+            await fetchLogs();
+        } catch (error) {
+            console.error('Unable to clear logs:', error);
+        }
+    });
+
     toggleLogs?.addEventListener('change', () => {
         if (toggleLogs?.checked) { 
             fetchLogs(); 
