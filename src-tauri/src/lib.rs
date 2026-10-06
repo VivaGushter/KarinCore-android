@@ -715,7 +715,7 @@ fn sanitize_wg_config(raw: &str) -> String {
         .join("\n")
 }
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", test))]
 #[derive(Default)]
 struct AndroidWireGuardPeer {
     public_key: String,
@@ -725,7 +725,7 @@ struct AndroidWireGuardPeer {
     allowed_ips: Vec<String>,
 }
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", test))]
 fn decode_wireguard_payload(payload: &str) -> Result<String, String> {
     let normalized = payload.trim().replace(' ', "+");
     let decoded = general_purpose::STANDARD
@@ -738,7 +738,7 @@ fn decode_wireguard_payload(payload: &str) -> Result<String, String> {
     String::from_utf8(decoded).map_err(|e| format!("Ошибка UTF-8 WireGuard payload: {}", e))
 }
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", test))]
 fn build_android_wireguard_outbound(wg_link: &str) -> Result<Value, String> {
     let parsed_url = Url::parse(wg_link).map_err(|e| format!("Некорректная WireGuard ссылка: {}", e))?;
     let payload = parsed_url
@@ -1171,9 +1171,7 @@ async fn start_openvpn_proxy(
     allow_server_proxy: bool,
     zone_priority: Vec<String>,
     proxy_lan: bool,
-    kill_switch: bool,
-    _app_routing_mode: String,
-    _app_packages: Vec<String>
+    kill_switch: bool
 ) -> Result<String, String> {
     let parsed_url = Url::parse(&ovpn_link).map_err(|e| e.to_string())?;
     
@@ -1969,12 +1967,12 @@ fn clear_logs(app: tauri::AppHandle) -> Result<String, String> {
         .map_err(|e| e.to_string())
 }
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", test))]
 fn redact_diagnostic_logs(content: &str) -> String {
     content
         .lines()
         .map(|line| {
-            if ["vless://", "vmess://", "trojan://", "ss://"]
+            if ["vless://", "vmess://", "trojan://", "ss://", "wg://"]
                 .iter()
                 .any(|needle| line.contains(needle))
             {
@@ -2257,4 +2255,331 @@ pub fn run() {
                 .output();
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn xray_rules_preserve_priority_and_supported_rule_types() {
+        let state = json!({
+            "direct": [
+                { "type": "geosite", "value": "private" },
+                { "type": "ip", "value": "10.0.0.0/8" }
+            ],
+            "proxy": [
+                { "type": "domain", "value": "example.com" },
+                { "type": "keyword", "value": "example" }
+            ],
+            "block": [{ "type": "unsupported", "value": "ignored" }]
+        });
+
+        let rules = build_xray_rules(state, vec!["proxy".into(), "direct".into(), "block".into()]);
+
+        assert_eq!(
+            rules,
+            json!([
+                {
+                    "type": "field",
+                    "outboundTag": "proxy",
+                    "domain": ["example.com", "keyword:example"],
+                    "ip": []
+                },
+                {
+                    "type": "field",
+                    "outboundTag": "direct",
+                    "domain": ["geosite:private"],
+                    "ip": ["10.0.0.0/8"]
+                }
+            ])
+        );
+    }
+
+    #[test]
+    fn routing_and_dns_import_map_outbound_tags_to_ui_zones() {
+        let outbounds = vec![
+            json!({ "tag": "bypass", "protocol": "freedom" }),
+            json!({ "tag": "tunnel", "protocol": "vless" }),
+            json!({ "tag": "reject", "protocol": "blackhole" }),
+        ];
+        let routing = json!({
+            "rules": [
+                { "outboundTag": "bypass", "domain": ["geosite:private"], "ip": ["10.0.0.0/8"] },
+                { "outboundTag": "tunnel", "domain": ["keyword:video"] },
+                { "outboundTag": "reject", "domain": ["domain:ads.example"] }
+            ]
+        });
+        let dns = json!({
+            "servers": [
+                { "address": "1.1.1.1", "outboundTag": "bypass" },
+                { "address": "https://dns.example/dns-query", "outboundTag": "tunnel" }
+            ]
+        });
+
+        assert_eq!(
+            convert_routing_to_zones(&routing, &outbounds),
+            Some(json!({
+                "direct": [
+                    { "type": "geosite", "value": "private" },
+                    { "type": "ip", "value": "10.0.0.0/8" }
+                ],
+                "proxy": [{ "type": "keyword", "value": "video" }],
+                "block": [{ "type": "domain", "value": "ads.example" }]
+            }))
+        );
+        assert_eq!(
+            convert_dns_to_params(&dns, &outbounds),
+            Some(json!({
+                "domestic": { "type": "dou", "url": "", "ip": "1.1.1.1" },
+                "remote": { "type": "doh", "url": "https://dns.example/dns-query", "ip": "" }
+            }))
+        );
+    }
+
+    #[test]
+    fn dns_config_pins_doh_bootstrap_and_routes_direct_domains() {
+        let config = build_dns_config(
+            &json!({
+                "domestic": { "type": "dou", "ip": "1.1.1.1", "url": "" },
+                "remote": { "type": "doh", "ip": "203.0.113.53", "url": "https://dns.example/dns-query" }
+            }),
+            &json!({
+                "direct": [
+                    { "type": "geosite", "value": "private" },
+                    { "type": "keyword", "value": "lan" }
+                ]
+            }),
+        );
+
+        assert_eq!(config["hosts"]["dns.example"], json!("203.0.113.53"));
+        assert_eq!(
+            config["servers"][0]["domains"],
+            json!(["geosite:private", "keyword:lan"])
+        );
+        assert_eq!(config["servers"][0]["outboundTag"], json!("direct"));
+        assert_eq!(config["servers"][1]["outboundTag"], json!("proxy"));
+    }
+
+    #[tokio::test]
+    async fn proxy_parsers_generate_expected_outbounds_without_network_lookup() {
+        let (vless, _, _) = build_proxy_outbound(
+            "vless://11111111-1111-1111-1111-111111111111@192.0.2.10:443?security=reality&pbk=public-key&sni=edge.example&sid=abcd&type=tcp&flow=xtls-rprx-vision",
+        )
+        .await
+        .unwrap();
+        assert_eq!(vless["protocol"], json!("vless"));
+        assert_eq!(
+            vless.pointer("/settings/vnext/0/users/0/id"),
+            Some(&json!("11111111-1111-1111-1111-111111111111"))
+        );
+        assert_eq!(
+            vless.pointer("/streamSettings/realitySettings/publicKey"),
+            Some(&json!("public-key"))
+        );
+        assert_eq!(
+            vless.pointer("/streamSettings/realitySettings/serverName"),
+            Some(&json!("edge.example"))
+        );
+
+        let vmess_payload = general_purpose::STANDARD.encode(
+            json!({
+                "add": "192.0.2.20",
+                "port": "8443",
+                "id": "22222222-2222-2222-2222-222222222222",
+                "aid": "0",
+                "scy": "auto",
+                "net": "ws",
+                "host": "ws.example",
+                "path": "/socket",
+                "tls": "tls",
+                "sni": "tls.example"
+            })
+            .to_string(),
+        );
+        let (vmess, _, _) = build_proxy_outbound(&format!("vmess://{vmess_payload}"))
+            .await
+            .unwrap();
+        assert_eq!(vmess["protocol"], json!("vmess"));
+        assert_eq!(vmess.pointer("/settings/vnext/0/port"), Some(&json!(8443)));
+        assert_eq!(
+            vmess.pointer("/streamSettings/wsSettings/path"),
+            Some(&json!("/socket"))
+        );
+        assert_eq!(
+            vmess.pointer("/streamSettings/tlsSettings/serverName"),
+            Some(&json!("tls.example"))
+        );
+
+        let (trojan, _, _) = build_proxy_outbound(
+            "trojan://test-password@192.0.2.30:443?security=tls&sni=trojan.example",
+        )
+        .await
+        .unwrap();
+        assert_eq!(trojan["protocol"], json!("trojan"));
+        assert_eq!(
+            trojan.pointer("/settings/servers/0/password"),
+            Some(&json!("test-password"))
+        );
+        assert_eq!(
+            trojan.pointer("/streamSettings/tlsSettings/allowInsecure"),
+            Some(&json!(false))
+        );
+
+        let credentials = general_purpose::STANDARD_NO_PAD.encode("aes-256-gcm:test-secret");
+        let (shadowsocks, _, _) =
+            build_proxy_outbound(&format!("ss://{credentials}@192.0.2.40:8388#test"))
+                .await
+                .unwrap();
+        assert_eq!(shadowsocks["protocol"], json!("shadowsocks"));
+        assert_eq!(
+            shadowsocks.pointer("/settings/servers/0/method"),
+            Some(&json!("aes-256-gcm"))
+        );
+        assert_eq!(
+            shadowsocks.pointer("/settings/servers/0/password"),
+            Some(&json!("test-secret"))
+        );
+    }
+
+    #[test]
+    fn subscription_parser_accepts_plain_and_unpadded_base64_lists() {
+        let plain = "vless://id@192.0.2.1:443#one\nwg://?payload=dGVzdA#two";
+        let parsed = parse_subscription_content(plain).unwrap();
+        assert_eq!(parsed.links.len(), 2);
+        assert!(parsed.links[0].starts_with("vless://"));
+        assert!(parsed.links[1].starts_with("wg://"));
+
+        let encoded = general_purpose::URL_SAFE_NO_PAD.encode(
+            "trojan://secret@192.0.2.2:443#three\nss://YWVzLTEyOC1nY206c2VjcmV0QDE5Mi4wLjIuMzo4Mzg4#four",
+        );
+        let parsed = parse_subscription_content(&encoded).unwrap();
+        assert_eq!(parsed.links.len(), 2);
+        assert!(parsed.links[0].starts_with("trojan://"));
+        assert!(parsed.links[1].starts_with("ss://"));
+    }
+
+    #[test]
+    fn subscription_json_imports_vless_routing_and_dns() {
+        let input = json!({
+            "remarks": "Imported profile",
+            "outbounds": [
+                {
+                    "tag": "proxy-out",
+                    "protocol": "vless",
+                    "settings": { "vnext": [{
+                        "address": "192.0.2.50",
+                        "port": 443,
+                        "users": [{ "id": "33333333-3333-3333-3333-333333333333", "flow": "" }]
+                    }] },
+                    "streamSettings": {
+                        "network": "tcp",
+                        "security": "reality",
+                        "realitySettings": {
+                            "publicKey": "public-key",
+                            "serverName": "import.example",
+                            "shortId": "1234",
+                            "fingerprint": "chrome"
+                        }
+                    }
+                },
+                { "tag": "direct-out", "protocol": "freedom" }
+            ],
+            "routing": { "rules": [{
+                "outboundTag": "direct-out",
+                "domain": ["geosite:private"]
+            }] },
+            "dns": { "servers": [{
+                "address": "9.9.9.9",
+                "outboundTag": "direct-out"
+            }] }
+        })
+        .to_string();
+
+        let parsed = parse_subscription_content(&input).unwrap();
+        assert_eq!(parsed.links.len(), 1);
+        assert!(parsed.links[0].contains("#Imported%20profile"));
+        assert_eq!(
+            parsed.imported_routing.unwrap()["direct"][0],
+            json!({
+                "type": "geosite",
+                "value": "private"
+            })
+        );
+        assert_eq!(
+            parsed.imported_dns.unwrap()["domestic"]["ip"],
+            json!("9.9.9.9")
+        );
+    }
+
+    #[test]
+    fn wireguard_sanitization_removes_commands_case_insensitively() {
+        let sanitized = sanitize_wg_config(
+            "[Interface]\nPrivateKey = secret\nPreUp = touch /tmp/bad\nPOSTDOWN=shutdown\n[Peer]\nPublicKey = public",
+        );
+
+        assert!(sanitized.contains("PrivateKey = secret"));
+        assert!(sanitized.contains("PublicKey = public"));
+        assert!(!sanitized.to_ascii_lowercase().contains("preup"));
+        assert!(!sanitized.to_ascii_lowercase().contains("postdown"));
+    }
+
+    #[test]
+    fn wireguard_parser_generates_userspace_outbound_and_defaults() {
+        let config = "[Interface]\nPrivateKey = private-key\nAddress = 10.10.0.2/32, fd00::2/128\nMTU = 99999\nReserved = 1, 2, 3\nPostUp = unsafe-command\n\n[Peer]\nPublicKey = public-key\nPresharedKey = preshared-key\nEndpoint = 192.0.2.60:51820\nPersistentKeepalive = 25";
+        let payload = general_purpose::URL_SAFE_NO_PAD.encode(config);
+        let outbound =
+            build_android_wireguard_outbound(&format!("wg://?payload={payload}")).unwrap();
+
+        assert_eq!(outbound["protocol"], json!("wireguard"));
+        assert_eq!(
+            outbound.pointer("/settings/noKernelTun"),
+            Some(&json!(true))
+        );
+        assert_eq!(outbound.pointer("/settings/mtu"), Some(&json!(9000)));
+        assert_eq!(
+            outbound.pointer("/settings/address"),
+            Some(&json!(["10.10.0.2", "fd00::2"]))
+        );
+        assert_eq!(
+            outbound.pointer("/settings/remoteDNS"),
+            Some(&json!(["1.1.1.1", "1.0.0.1"]))
+        );
+        assert_eq!(
+            outbound.pointer("/settings/reserved"),
+            Some(&json!([1, 2, 3]))
+        );
+        assert_eq!(
+            outbound.pointer("/settings/peers/0/allowedIPs"),
+            Some(&json!(["0.0.0.0/0", "::/0"]))
+        );
+    }
+
+    #[test]
+    fn wireguard_parser_rejects_missing_required_fields() {
+        let missing_private_key = "[Interface]\nAddress = 10.0.0.2/32\n[Peer]\nPublicKey = public\nEndpoint = 192.0.2.1:51820";
+        let payload = general_purpose::STANDARD.encode(missing_private_key);
+        let error =
+            build_android_wireguard_outbound(&format!("wg://?payload={payload}")).unwrap_err();
+        assert!(error.contains("Interface.PrivateKey"));
+    }
+
+    #[test]
+    fn diagnostic_log_redaction_covers_every_supported_secret_uri() {
+        let logs = [
+            "connecting vless://uuid@host",
+            "connecting vmess://payload",
+            "connecting trojan://password@host",
+            "connecting ss://secret@host",
+            "connecting wg://?payload=private-key",
+            "ordinary status line",
+        ]
+        .join("\n");
+
+        let redacted = redact_diagnostic_logs(&logs);
+        assert_eq!(redacted.matches("[REDACTED PROXY URI]").count(), 5);
+        assert!(redacted.ends_with("ordinary status line"));
+        assert!(!redacted.contains("private-key"));
+        assert!(!redacted.contains("password"));
+    }
 }

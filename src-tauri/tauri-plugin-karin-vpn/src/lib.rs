@@ -226,11 +226,11 @@ async fn status<R: Runtime>(app: tauri::AppHandle<R>) -> Result<VpnStatus> {
 
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     tauri::plugin::Builder::new("karin-vpn")
-        .setup(|app, api| {
+        .setup(|app, _api| {
             #[cfg(target_os = "android")]
-            let handle = api.register_android_plugin(PLUGIN_IDENTIFIER, "KarinVpnPlugin")?;
+            let handle = _api.register_android_plugin(PLUGIN_IDENTIFIER, "KarinVpnPlugin")?;
 
-            app.manage(KarinVpn {
+            app.manage(KarinVpn::<R> {
                 #[cfg(target_os = "android")]
                 mobile_plugin_handle: handle,
                 #[cfg(not(target_os = "android"))]
