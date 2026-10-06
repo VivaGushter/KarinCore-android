@@ -1,0 +1,31 @@
+name: Repository checks
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: Version consistency
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Check version metadata
+        run: python scripts/check-version.py
+
+      - name: Validate JSON files
+        run: |
+          python -m json.tool package.json >/dev/null
+          python -m json.tool src-tauri/tauri.conf.json >/dev/null
+          python -m json.tool src-tauri/capabilities/default.json >/dev/null
