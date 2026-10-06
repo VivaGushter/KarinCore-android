@@ -4,7 +4,7 @@ import { translations } from "./i18n";
 // **********************************
 // TYPES & INTERFACES
 // **********************************
-interface ProxyGroup { id: string; name: string; pinned: boolean; isOpen: boolean; }
+interface ProxyGroup { id: string; name: string; pinned: boolean; isOpen: boolean; sourceUrl?: string; }
 interface ProxyLink { id: string; url: string; pinned: boolean; groupId: string | null; }
 interface DnsConfig { type: string, url: string, ip: string }
 interface RouteProfile { id: string, name: string, defaultOutbound: string, rules: any, domDns?: DnsConfig, remDns?: DnsConfig, zonePriority?: ZoneKey[] }
@@ -602,7 +602,7 @@ async function saveNewLink() {
             const result = await Promise.race([subscriptionRequest, uiWatchdog]);
             const domain = new URL(input).hostname;
             const newGroupId = 'grp_' + Date.now();
-            appGroups.push({ id: newGroupId, name: domain, pinned: false, isOpen: true });
+            appGroups.push({ id: newGroupId, name: domain, pinned: false, isOpen: true, sourceUrl: input });
             result.links.forEach(u => addLink(u, newGroupId));
 
             if (result.importedRouting) mergeImportedRouting(result.importedRouting);
@@ -630,6 +630,88 @@ async function saveNewLink() {
         return;
     }
     alert(t('err_invalid_link'));
+}
+
+async function refreshSubscriptionGroup(groupId: string) {
+    const group = appGroups.find(g => g.id === groupId);
+    if (!group?.sourceUrl) return;
+
+    const button = document.querySelector<HTMLButtonElement>(
+        `.btn-refresh-subscription[data-group-id="${groupId}"]`
+    );
+    const originalText = button?.innerText || '↻';
+    if (button) {
+        button.disabled = true;
+        button.innerText = '…';
+    }
+
+    try {
+        const subscriptionRequest = invoke<SubscriptionResult>('fetch_subscription', { url: group.sourceUrl });
+        const uiWatchdog = new Promise<never>((_, reject) => {
+            window.setTimeout(
+                () => reject(new Error('SUBSCRIPTION_UI_TIMEOUT')),
+                25_000
+            );
+        });
+        const result = await Promise.race([subscriptionRequest, uiWatchdog]);
+
+        const existing = appLinks.filter(link => link.groupId === groupId);
+        const existingByUrl = new Map(existing.map(link => [link.url, link]));
+        const refreshed = result.links.map((url, index) => {
+            const current = existingByUrl.get(url);
+            if (current) {
+                return { ...current, groupId };
+            }
+
+            return {
+                id: `link_${Date.now()}_${index}_${Math.random()}`,
+                url,
+                pinned: false,
+                groupId
+            } as ProxyLink;
+        });
+
+        const refreshedUrls = new Set(result.links);
+        if (
+            selectedProfileUrl
+            && existingByUrl.has(selectedProfileUrl)
+            && !refreshedUrls.has(selectedProfileUrl)
+            && activeLink !== selectedProfileUrl
+        ) {
+            selectedProfileUrl = null;
+            localStorage.removeItem('karin_selected_profile');
+        }
+
+        appLinks = appLinks.filter(link => link.groupId !== groupId).concat(refreshed);
+
+        if (result.importedRouting) mergeImportedRouting(result.importedRouting);
+        if (result.importedDns) mergeImportedDns(result.importedDns);
+
+        saveData();
+        renderLinks();
+        updateHeroProfileName();
+        typeKarinMessage('karin_add_link');
+        alert(t('subscription_refresh_ok'));
+    } catch (error) {
+        const message = String(error);
+        if (message.includes('SUBSCRIPTION_UI_TIMEOUT') || message.includes('SUBSCRIPTION_TIMEOUT')) {
+            alert(t('err_subscription_timeout'));
+        } else if (message.includes('SUBSCRIPTION_CONNECT')) {
+            alert(`${t('err_subscription_connect')}\n\n${message}`);
+        } else if (message.includes('certificate') || message.includes('tls') || message.includes('TLS')) {
+            alert(`${t('err_subscription_tls')}\n\n${message}`);
+        } else {
+            alert(`${t('subscription_refresh_failed')}\n\n${message}`);
+        }
+    } finally {
+        const currentButton = document.querySelector<HTMLButtonElement>(
+            `.btn-refresh-subscription[data-group-id="${groupId}"]`
+        );
+        if (currentButton) {
+            currentButton.disabled = false;
+            currentButton.innerText = originalText;
+        }
+    }
 }
 
 async function connectProxy(link: string) {
@@ -1030,7 +1112,16 @@ function renderLinks() {
                   ${isEditMode ? `<input type="checkbox" class="edit-checkbox" data-group-id="${g.id}" ${selectedGroups.has(g.id) ? 'checked' : ''} onclick="event.stopPropagation()">` : ''}
                   ${g.pinned ? pinIcon : ''} <span>${g.name}</span> <span style="font-size:12px; color:var(--text-dim);">(${gLinks.length})</span>
               </div>
-              <div style="display:flex; gap:10px;">
+              <div style="display:flex; gap:10px; align-items:center;">
+                  ${g.sourceUrl && !isEditMode ? `
+                    <button
+                      type="button"
+                      class="btn-refresh-subscription"
+                      data-group-id="${g.id}"
+                      title="${t('subscription_refresh')}"
+                      style="border:none;background:transparent;color:var(--accent);cursor:pointer;font-size:17px;line-height:1;padding:2px 4px;"
+                    >↻</button>
+                  ` : ''}
                   <span style="color:var(--text-dim); transition: transform 0.2s; transform: ${g.isOpen ? 'rotate(180deg)' : 'rotate(0deg)'};">▼</span>
               </div>
           </div>
@@ -2026,6 +2117,15 @@ document.addEventListener('click', async (e) => {
         if ((target as HTMLInputElement).checked) selectedLinks.add(id); else selectedLinks.delete(id);
     }
   
+    const refreshSubscriptionButton = target.closest('.btn-refresh-subscription') as HTMLElement | null;
+    if (refreshSubscriptionButton) {
+        const groupId = refreshSubscriptionButton.dataset.groupId;
+        if (groupId) {
+            void refreshSubscriptionGroup(groupId);
+        }
+        return;
+    }
+
     const groupHeader = target.closest('.group-header');
     if (groupHeader && !target.closest('.edit-checkbox')) {
         const gId = (groupHeader as HTMLElement).dataset.id!;
