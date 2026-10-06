@@ -56,13 +56,13 @@ npm run android:dev
 
 `android:core` скачивает закреплённый `libv2ray.aar` и проверяет SHA-256. Сам AAR в Git не хранится.
 
-После первого успешного `tauri android init` можно закоммитить воспроизводимые файлы из `src-tauri/gen/android`. Машинный `local.properties` уже исключён через `.gitignore`.
+После первого успешного `tauri android init` воспроизводимые файлы из `src-tauri/gen/android` могут быть добавлены в репозиторий. Машинный `local.properties` исключён через `.gitignore`.
 
 ## Версии
 
 Android-порт имеет свою ветку SemVer и не обязан повторять номер Linux-версии.
 
-Перед релизным коммитом:
+Проверка перед релизным коммитом:
 
 ```bash
 npm run version:check
