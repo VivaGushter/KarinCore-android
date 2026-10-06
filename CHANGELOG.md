@@ -2,6 +2,27 @@
 
 All notable Android-port changes are tracked here.
 
+## [0.1.0-alpha.16] - 2026-10-06
+
+Live Android UI synchronization with native VPN state.
+
+### Added
+- Foreground-only native VPN status monitor in the Android frontend.
+- Native VPN state is checked every 2.5 seconds while the application is visible.
+- UI automatically reflects service stop/start, Xray core state, reconnect state, Always-on and lockdown changes.
+- Active frontend connection markers are removed when the native VPN is no longer active.
+- Monitoring pauses while the application is hidden and resumes immediately when it becomes visible.
+
+### Efficiency
+- Concurrent native status polls are suppressed.
+- UI is re-rendered only when the native status signature changes.
+- Gradle dependency caching is enabled in the Android GitHub Actions workflow.
+
+### Verified
+- State-monitor feature commit completes the full arm64 debug APK build in GitHub Actions.
+- Release publication is handled by the automatic Android release workflow.
+
+
 ## [0.1.0-alpha.15] - 2026-10-06
 
 Built-in Android VPN self-test.
