@@ -5,8 +5,14 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -22,6 +28,13 @@ class KarinVpnService : VpnService() {
     private var coreController: CoreController? = null
     private val worker = Executors.newSingleThreadExecutor()
     private val stateLock = Any()
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var connectivityManager: ConnectivityManager? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var upstreamNetwork: Network? = null
+    private val handoverReload = Runnable {
+        worker.execute { reloadCoreForHandover() }
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
@@ -113,8 +126,125 @@ class KarinVpnService : VpnService() {
             coreRunning = true
             running = true
             lastError = null
+            registerNetworkMonitor()
             updateNotification("VPN подключён")
             Log.i(TAG, "KarinCore VPN started, fd=${pfd.fd}, core=$coreVersion")
+        }
+    }
+
+    private fun registerNetworkMonitor() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P || networkCallback != null) return
+
+        val connectivity = getSystemService(ConnectivityManager::class.java) ?: return
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)
+            .build()
+
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                val previous = upstreamNetwork
+                upstreamNetwork = network
+                setUnderlyingNetworks(arrayOf(network))
+
+                if (previous != null && previous != network && running) {
+                    Log.i(TAG, "Underlying network changed: $previous -> $network")
+                    mainHandler.removeCallbacks(handoverReload)
+                    mainHandler.postDelayed(handoverReload, HANDOVER_DEBOUNCE_MS)
+                }
+            }
+
+            override fun onCapabilitiesChanged(
+                network: Network,
+                networkCapabilities: NetworkCapabilities
+            ) {
+                if (network == upstreamNetwork) {
+                    setUnderlyingNetworks(arrayOf(network))
+                }
+            }
+
+            override fun onLost(network: Network) {
+                if (network == upstreamNetwork) {
+                    upstreamNetwork = null
+                    setUnderlyingNetworks(null)
+                }
+            }
+        }
+
+        try {
+            connectivity.requestNetwork(request, callback)
+            connectivityManager = connectivity
+            networkCallback = callback
+        } catch (t: Throwable) {
+            Log.w(TAG, "Unable to register underlying network monitor", t)
+        }
+    }
+
+    private fun unregisterNetworkMonitor() {
+        mainHandler.removeCallbacks(handoverReload)
+        val callback = networkCallback
+        val connectivity = connectivityManager
+
+        networkCallback = null
+        connectivityManager = null
+        upstreamNetwork = null
+        setUnderlyingNetworks(null)
+
+        if (callback != null && connectivity != null) {
+            try {
+                connectivity.unregisterNetworkCallback(callback)
+            } catch (t: Throwable) {
+                Log.w(TAG, "Unable to unregister underlying network monitor", t)
+            }
+        }
+    }
+
+    private fun reloadCoreForHandover() {
+        synchronized(stateLock) {
+            if (!running || starting || reconnecting) return
+
+            val controller = coreController ?: return
+            val pfd = vpnInterface ?: return
+            val config = lastConfigJson ?: return
+
+            reconnecting = true
+            updateNotification("Смена сети…")
+            var lastFailure: Throwable? = null
+
+            try {
+                for (attempt in 1..HANDOVER_RETRY_COUNT) {
+                    try {
+                        if (controller.isRunning) {
+                            controller.stopLoop()
+                        }
+                        coreRunning = false
+
+                        if (attempt > 1) {
+                            Thread.sleep(HANDOVER_RETRY_DELAY_MS * attempt)
+                        }
+
+                        controller.startLoop(config, pfd.fd)
+                        if (!controller.isRunning) {
+                            throw IllegalStateException("Xray core did not resume after network handover")
+                        }
+
+                        coreRunning = true
+                        lastError = null
+                        updateNotification("VPN подключён")
+                        Log.i(TAG, "Xray reloaded after network handover on attempt $attempt")
+                        return
+                    } catch (t: Throwable) {
+                        lastFailure = t
+                        Log.w(TAG, "Xray handover reload attempt $attempt failed", t)
+                    }
+                }
+
+                coreRunning = false
+                lastError = "Network handover failed: ${lastFailure?.message ?: "unknown error"}"
+                updateNotification("VPN: ошибка переподключения")
+            } finally {
+                reconnecting = false
+            }
         }
     }
 
@@ -125,6 +255,9 @@ class KarinVpnService : VpnService() {
     }
 
     private fun stopTunnelLocked(stopService: Boolean) {
+        unregisterNetworkMonitor()
+        reconnecting = false
+
         try {
             if (coreController?.isRunning == true) {
                 coreController?.stopLoop()
@@ -236,10 +369,14 @@ class KarinVpnService : VpnService() {
         const val EXTRA_MTU = "mtu"
         private const val CHANNEL_ID = "karincore_vpn"
         private const val NOTIFICATION_ID = 7301
+        private const val HANDOVER_DEBOUNCE_MS = 1000L
+        private const val HANDOVER_RETRY_COUNT = 3
+        private const val HANDOVER_RETRY_DELAY_MS = 500L
 
         @Volatile var running: Boolean = false
         @Volatile var starting: Boolean = false
         @Volatile var coreRunning: Boolean = false
+        @Volatile var reconnecting: Boolean = false
         @Volatile var tunFd: Int = -1
         @Volatile var coreVersion: String? = null
         @Volatile var lastError: String? = null

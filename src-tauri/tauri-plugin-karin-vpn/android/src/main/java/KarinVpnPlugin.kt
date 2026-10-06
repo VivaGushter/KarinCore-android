@@ -129,6 +129,7 @@ class KarinVpnPlugin(private val activity: Activity) : Plugin(activity) {
         put("running", KarinVpnService.running)
         put("starting", KarinVpnService.starting)
         put("coreRunning", KarinVpnService.coreRunning)
+        put("reconnecting", KarinVpnService.reconnecting)
         put("tunFd", KarinVpnService.tunFd.takeIf { it >= 0 })
         put("coreVersion", KarinVpnService.coreVersion)
         put("lastError", KarinVpnService.lastError)

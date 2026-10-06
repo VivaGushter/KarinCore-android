@@ -24,6 +24,8 @@ pub struct VpnStatus {
     pub starting: bool,
     #[serde(default)]
     pub core_running: bool,
+    #[serde(default)]
+    pub reconnecting: bool,
     pub tun_fd: Option<i32>,
     pub core_version: Option<String>,
     pub last_error: Option<String>,
