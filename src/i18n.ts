@@ -104,7 +104,7 @@ export const translations: Record<string, Record<string, string>> = {
     about_roadmap_p1: "• <strong>Cross-platform expansion:</strong> developing native versions for Windows and macOS (yes, Karin plans to take over other operating systems too).<br>• <strong>Multi-protocol support:</strong> integrating classic VPN solutions like WireGuard and OpenVPN to ensure maximum flexibility.",
     about_support_title: "Support & Connection",
     about_support_p1: "The project is created and maintained by a single independent developer. If KarinCore helps you stay connected to the free world, you can support its development with a donation, submit a bug report, or just say 'thank you':",
-    about_text_2: "Android-port changes are tracked per release in the project CHANGELOG and GitHub Releases."",
+    about_text_2: "Android-port changes are tracked per release in the project CHANGELOG and GitHub Releases.",
     
     karin_greet: "System initialized. I've encrypted the connection with the core. Waiting for commands...",
     karin_connect_ok: "Connection established perfectly! I've checked everything. All requests are encrypted.",
