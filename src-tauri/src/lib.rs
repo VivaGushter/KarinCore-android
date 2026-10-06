@@ -992,7 +992,12 @@ fn parse_subscription_content(text: &str) -> Result<SubscriptionResult, String> 
     let parse_plain = |text_str: &str, out_links: &mut Vec<String>| {
         for line in text_str.lines() {
             let s = line.trim();
-            if s.starts_with("vless://") || s.starts_with("vmess://") || s.starts_with("trojan://") || s.starts_with("ss://") {
+            if s.starts_with("vless://")
+                || s.starts_with("vmess://")
+                || s.starts_with("trojan://")
+                || s.starts_with("ss://")
+                || s.starts_with("wg://")
+            {
                 out_links.push(s.to_string());
             }
         }

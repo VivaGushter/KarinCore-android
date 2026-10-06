@@ -471,7 +471,9 @@ function getLinkDisplayName(url: string): string {
             displayName = encodedName ? decodeURIComponent(encodedName).replace('.ovpn', '') : `OpenVPN (${u.hostname})`;
         } else if (u.protocol === 'wg:') {
             const encodedName = u.searchParams.get('name');
-            displayName = encodedName ? decodeURIComponent(encodedName).replace('.conf', '') : `WireGuard (${u.hostname})`;
+            displayName = encodedName
+                ? decodeURIComponent(encodedName).replace('.conf', '')
+                : (u.hostname ? `WireGuard (${u.hostname})` : 'WireGuard');
         } else {
             displayName = `${u.hostname}:${u.port || '443'}`;
             if (u.hash) displayName = decodeURIComponent(u.hash.substring(1)) + ` (${u.hostname})`;
@@ -568,7 +570,13 @@ async function saveNewLink() {
         }
     };
   
-    if (input.startsWith('vless://') || input.startsWith('vmess://') || input.startsWith('trojan://') || input.startsWith('ss://')) {
+    if (
+        input.startsWith('vless://')
+        || input.startsWith('vmess://')
+        || input.startsWith('trojan://')
+        || input.startsWith('ss://')
+        || input.startsWith('wg://')
+    ) {
         addLink(input); 
         saveData(); 
         renderLinks(); 
@@ -893,7 +901,7 @@ function formatProxyInfo(linkUrl: string): string {
         if (protocol === 'WG') {
             const ep = url.hostname;
             const port = url.port || '51820';
-            return `WireGuard | UDP | ${ep}:${port}`;
+            return ep ? `WireGuard | UDP | ${ep}:${port}` : 'WireGuard | Xray userspace';
         }
 
         const type = (url.searchParams.get('type') || 'TCP').toUpperCase();
@@ -955,7 +963,7 @@ function renderLinkItem(item: ProxyLink) {
             if (encodedName) {
                 displayName = decodeURIComponent(encodedName).replace('.conf', '');
             } else {
-                displayName = `WireGuard (${url.hostname})`;
+                displayName = url.hostname ? `WireGuard (${url.hostname})` : 'WireGuard';
             }
         } else {
             displayName = `${url.hostname}:${url.port || '443'}`;
