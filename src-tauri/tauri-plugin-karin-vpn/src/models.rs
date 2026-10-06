@@ -50,6 +50,10 @@ pub struct VpnStatus {
     pub always_on: bool,
     #[serde(default)]
     pub lockdown: bool,
+    #[serde(default = "default_app_routing_mode")]
+    pub app_routing_mode: String,
+    #[serde(default)]
+    pub app_package_count: u32,
     pub tun_fd: Option<i32>,
     pub core_version: Option<String>,
     pub last_error: Option<String>,
