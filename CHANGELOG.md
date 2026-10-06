@@ -2,6 +2,27 @@
 
 All notable Android-port changes are tracked here.
 
+## [0.1.0-alpha.13] - 2026-10-06
+
+Privacy-conscious Android diagnostics export.
+
+### Added
+- Export diagnostics action in the Android Logs page.
+- Clear native VPN/Xray logs action in the Logs page.
+- Device metadata bridge with manufacturer, brand, model, Android release and SDK level.
+- Diagnostic report containing app version, architecture, Xray version, VPN lifecycle state, Always-on/lockdown state, TUN presence and per-app routing mode/count.
+- Diagnostic files are written through the Android system document picker.
+
+### Privacy
+- Generated diagnostics do not include subscription URLs or generated Xray configuration.
+- Proxy URI-bearing log lines are replaced with a redacted marker.
+- Per-app diagnostics include only the routing mode and package count, not selected package names.
+
+### Verified
+- Diagnostic backend and UI complete the full arm64 debug APK build in GitHub Actions.
+- Release publication is handled by the automatic Android release workflow.
+
+
 ## [0.1.0-alpha.12] - 2026-10-06
 
 Android fork update channel and automated releases.
