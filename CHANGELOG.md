@@ -2,6 +2,29 @@
 
 All notable Android-port changes are tracked here.
 
+## [0.1.0-alpha.6] - 2026-10-06
+
+Mobile UI adaptation and Android document export.
+
+### Added
+- Android system document picker export for routing-profile JSON files.
+- Android mobile layout class activated from native runtime metadata.
+- Safe-area aware spacing for notches, status bars and gesture navigation.
+- Narrow-screen routing columns stack vertically.
+- Mobile sizing for the connection core, dialogs and profile drawer.
+- Runtime metadata command exposing platform, application version and update repository.
+
+### Changed
+- Desktop titlebar and window controls are hidden on Android.
+- Splash screen and sidebar use Android-safe full-height layout.
+- Application version in the UI now comes from `CARGO_PKG_VERSION`.
+- Android update checks target `VivaGushter/KarinCore-android`; desktop checks continue to target upstream KarinCore.
+- Update UI falls back to the installed version if GitHub release metadata is unavailable.
+
+### Verified
+- Complete arm64 debug APK build succeeds in GitHub Actions with the mobile UI and document picker integration.
+
+
 ## [0.1.0-alpha.7] - 2026-10-06
 
 Android runtime hardening.

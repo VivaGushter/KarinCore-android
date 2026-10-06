@@ -32,6 +32,9 @@ Version `0.1.0-alpha.7` is validated by a complete arm64 debug APK build in GitH
 - Per-app split tunneling with All apps, Only selected and Bypass selected modes.
 - Installed launchable Android applications are discovered natively and can be searched and selected in Settings.
 - Android-native VPN/Xray event log buffer is exposed through the existing Logs tab, including startup, errors, app-routing state, handovers and Xray status callbacks.
+- Android document picker export for routing profiles.
+- Android-specific mobile layout with desktop titlebar removed, safe-area handling and narrow-screen routing layout.
+- Runtime version/update metadata comes from the Rust package version instead of frontend hardcoded values.
 - Android routing-profile export uses the system document picker.
 - Android-specific responsive layout hides desktop window controls, respects safe-area insets and stacks routing controls on narrow screens.
 - Runtime version and update repository are obtained from Rust instead of hardcoded frontend values.
