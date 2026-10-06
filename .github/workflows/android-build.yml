@@ -49,7 +49,22 @@ jobs:
           set -euo pipefail
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.0.12077973"
+
+          for attempt in 1 2 3; do
+            if "$SDKMANAGER" "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.0.12077973"; then
+              break
+            fi
+
+            if [ "$attempt" -eq 3 ]; then
+              echo "Android SDK/NDK installation failed after 3 attempts"
+              exit 1
+            fi
+
+            echo "SDK/NDK install failed on attempt $attempt, clearing partial download and retrying..."
+            rm -rf "$ANDROID_HOME/ndk/27.0.12077973" "$ANDROID_HOME/.temp" 2>/dev/null || true
+            sleep 5
+          done
+
           echo "NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
 
