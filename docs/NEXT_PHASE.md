@@ -1,6 +1,6 @@
 # Phase 3 status
 
-Current version: `0.1.0-alpha.14`
+Current version: `0.1.0-alpha.15`
 
 ## Completed
 
@@ -16,6 +16,7 @@ Current version: `0.1.0-alpha.14`
 10. UI state restoration from the foreground VPN service after Activity/WebView recreation.
 11. Android Always-on VPN restart persistence and system lockdown settings integration.
 12. CI-validated arm64 debug APK pipeline.
+13. Built-in VPN self-test for native service/Xray/TUN/proxy-path/external-IP validation.
 
 ## Planned
 

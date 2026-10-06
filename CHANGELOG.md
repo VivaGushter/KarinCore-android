@@ -2,6 +2,28 @@
 
 All notable Android-port changes are tracked here.
 
+## [0.1.0-alpha.15] - 2026-10-06
+
+Built-in Android VPN self-test.
+
+### Added
+- VPN self-test action in the Android Logs page.
+- Native VPN service, Xray core and TUN state checks.
+- Visibility of reconnect/handover state, Always-on/lockdown state and per-app routing mode.
+- Forced proxy-path connectivity test using the existing Xray ping inbound.
+- External IP lookup through the active VPN/proxy path.
+- Human-readable pass/fail output suitable for real-device debugging.
+
+### Behavior
+- Proxy-path checks run only when Xray and the Android TUN are active.
+- The self-test reports native last-error state when available instead of silently hiding it.
+- The test does not modify the active VPN configuration.
+
+### Verified
+- Self-test feature commit completes Repository checks and the full arm64 debug APK build in GitHub Actions.
+- Release publication is handled by the automatic Android release workflow.
+
+
 ## [0.1.0-alpha.14] - 2026-10-06
 
 Foreground VPN notification actions.

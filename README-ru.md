@@ -2,7 +2,7 @@
   <img src="public/karincore-icon-main.png" alt="KarinCore" width="160"/>
   <h1>KarinCore Android</h1>
   <p>Android-порт KarinCore на Tauri 2, Rust, Android VpnService и Xray-core.</p>
-  <p><strong>Текущая версия: 0.1.0-alpha.14</strong></p>
+  <p><strong>Текущая версия: 0.1.0-alpha.15</strong></p>
   <p><a href="README.md">English</a></p>
 </div>
 
@@ -12,9 +12,9 @@
 
 В Android-порте сохранены интерфейс на TypeScript/Vite и общая Rust-логика KarinCore: парсинг ссылок, подписки, маршрутизация, DNS и профили. Linux-часть с `sudo`, systemd, `route.sh`, iptables и системным Xray на Android заменена нативным `VpnService`.
 
-Версия `0.1.0-alpha.14` успешно проходит полную CI-сборку arm64 debug APK в GitHub Actions. Следующий контрольный этап: запуск и проверка на реальном Android-устройстве.
+Версия `0.1.0-alpha.15` успешно проходит полную CI-сборку arm64 debug APK в GitHub Actions. Следующий контрольный этап: запуск и проверка на реальном Android-устройстве.
 
-## Реализовано к 0.1.0-alpha.14
+## Реализовано к 0.1.0-alpha.15
 
 - мобильная точка входа Tauri 2;
 - Android `VpnService`;
@@ -43,9 +43,10 @@
 - интерфейс показывает состояние Always-on/lockdown и не изображает обычное отключение доступным, когда системный Always-on активен;
 - на Android подписки загружаются нативно через Kotlin HTTP вместо Rust reqwest, с таймаутами подключения/чтения, ограничением редиректов и отдельными ошибками TLS/сети;
 - во frontend добавлен независимый watchdog на 25 секунд, поэтому интерфейс больше не может бесконечно оставаться в Loading даже при зависшем native bridge;
-- для Android `reqwest` использует Rustls.
+- для Android `reqwest` использует Rustls;
+- во вкладке Logs добавлена самопроверка VPN: состояние нативного сервиса, Xray, TUN, принудительный proxy-path с DNS/HTTPS и внешний IP через активный прокси.
 
-Пока не реализованы: цепочки OpenVPN/WireGuard и дополнительная полировка после тестов на реальном устройстве. Поведение Always-on/lockdown также требует проверки на разных OEM-прошивках Android.
+Пока не реализованы: цепочки OpenVPN/WireGuard и дополнительная полировка после тестов на реальном устройстве. Always-on/lockdown, IPv6 и OEM-особенности требуют проверки на реальном устройстве.
 
 ## Первый запуск сборки
 

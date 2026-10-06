@@ -2,7 +2,7 @@
   <img src="public/karincore-icon-main.png" alt="KarinCore" width="160"/>
   <h1>KarinCore Android</h1>
   <p>Android port of KarinCore powered by Tauri 2, Rust, Android VpnService and Xray-core.</p>
-  <p><strong>Current version: 0.1.0-alpha.14</strong></p>
+  <p><strong>Current version: 0.1.0-alpha.15</strong></p>
   <p><a href="README-ru.md">Русская версия</a></p>
 </div>
 
@@ -12,9 +12,9 @@ This repository is an experimental Android port of [detestern/KarinCore](https:/
 
 The shared KarinCore TypeScript UI and Rust parsing/routing logic are retained. Linux-specific tunnel setup is replaced on Android by a native `VpnService` bridge and Xray TUN integration.
 
-Version `0.1.0-alpha.14` is validated by a complete arm64 debug APK build in GitHub Actions. Real-device runtime validation is the next verification step.
+Version `0.1.0-alpha.15` is validated by a complete arm64 debug APK build in GitHub Actions. Real-device runtime validation is the next verification step.
 
-## Implemented through 0.1.0-alpha.14
+## Implemented through 0.1.0-alpha.15
 
 - Tauri 2 mobile entry point.
 - Native Android `VpnService`.
@@ -44,8 +44,9 @@ Version `0.1.0-alpha.14` is validated by a complete arm64 debug APK build in Git
 - Subscription loading on Android uses a native Kotlin HTTP path instead of Rust reqwest, with bounded connect/read timeouts, redirect limits and explicit TLS/network errors.
 - The frontend has an independent 25 second subscription watchdog, so the UI cannot remain stuck in Loading even if the native bridge fails to return.
 - Android uses Rustls for `reqwest`; the desktop path keeps the upstream native TLS setup.
+- Logs page includes a VPN self-test that checks native service state, Xray state, TUN presence, forced proxy-path HTTPS/DNS and external IP through the active proxy.
 
-Not implemented yet on Android: OpenVPN/WireGuard chaining and additional real-device UI/runtime polish. Always-on/lockdown behavior still requires real-device validation across OEM Android variants.
+Not implemented yet on Android: OpenVPN/WireGuard chaining and additional real-device UI/runtime polish. Always-on/lockdown, IPv6 and OEM-specific behavior still require real-device validation.
 
 ## Build prerequisites
 
