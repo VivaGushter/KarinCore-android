@@ -40,7 +40,7 @@ Install the normal Tauri Android prerequisites: Rust, Node.js, Android Studio, A
 rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
 ```
 
-Set `JAVA_HOME`, `ANDROID_HOME` and `NDK_HOME` for your machine.
+Set `JAVA_HOME`, `ANDROID_HOME` and `NDK_HOME` in the build environment.
 
 ## First build
 

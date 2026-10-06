@@ -44,4 +44,4 @@ cf71680b776b9ca583747ba652f816b047a655eab875d8951e6141636d88bbd6
 
 ## Current verification boundary
 
-Static integration has been prepared against the inspected KarinCore upstream source and current AndroidLibXrayLite API. A complete Gradle/Rust/NDK build has not yet been executed in the assistant environment, so compile-time and device-runtime fixes may still be required.
+Static integration is based on KarinCore upstream 1.3.7 and the pinned AndroidLibXrayLite API. A complete Gradle/Rust/NDK build and real-device validation are still pending, so compile-time and runtime adjustments may be required.

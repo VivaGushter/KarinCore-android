@@ -10,7 +10,7 @@
 
 Это экспериментальный Android-порт [detestern/KarinCore](https://github.com/detestern/KarinCore). За основу взят KarinCore 1.3.7, commit `b7fea2e2ff5e1492fd863381985fdebb4da7a57e`.
 
-Мы сохраняем интерфейс на TypeScript/Vite и общую Rust-логику KarinCore: парсинг ссылок, подписки, маршрутизацию, DNS и профили. Linux-часть с `sudo`, systemd, `route.sh`, iptables и системным Xray на Android заменяется нативным `VpnService`.
+В Android-порте сохранены интерфейс на TypeScript/Vite и общая Rust-логика KarinCore: парсинг ссылок, подписки, маршрутизация, DNS и профили. Linux-часть с `sudo`, systemd, `route.sh`, iptables и системным Xray на Android заменена нативным `VpnService`.
 
 Исходники версии `0.1.0-alpha.1` подготовлены под Android, но **полная сборка APK на настоящем Android SDK/NDK и проверка на устройстве ещё не выполнены**. Это следующий контрольный этап.
 
@@ -36,13 +36,13 @@
 
 Нужны Rust, Node.js, Android Studio, Android SDK, Platform Tools, Build Tools, NDK и Command-line Tools.
 
-Добавь Android targets:
+Для сборки добавляются Android targets:
 
 ```bash
 rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
 ```
 
-Затем:
+Последовательность первого запуска:
 
 ```bash
 git clone https://github.com/VivaGushter/KarinCore-android.git
