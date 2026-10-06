@@ -51,6 +51,9 @@ let nativeVpnCoreRunning = false;
 let nativeVpnReconnecting = false;
 let nativeVpnAlwaysOn = false;
 let nativeVpnLockdown = false;
+let nativeStatusInterval: number | null = null;
+let nativeStatusPollInFlight = false;
+let lastNativeStatusSignature = '';
 let currentTheme = localStorage.getItem('karin_theme') || 'dark';
 let currentLang = localStorage.getItem('karin_lang') || 'en';
 let activeLink: string | null = sessionStorage.getItem('karin_active_link') || null;
@@ -1443,6 +1446,71 @@ async function restoreAndroidVpnState() {
     }
 }
 
+async function pollAndroidVpnState() {
+    if (runtimeInfo.platform !== 'android' || document.visibilityState !== 'visible' || nativeStatusPollInFlight) {
+        return;
+    }
+
+    nativeStatusPollInFlight = true;
+    try {
+        const status = await invoke<VpnRuntimeStatus>('get_vpn_runtime_status');
+        const signature = [
+            status.running,
+            status.starting,
+            status.coreRunning,
+            status.reconnecting,
+            status.alwaysOn,
+            status.lockdown,
+            status.lastError || ''
+        ].join('|');
+
+        if (signature === lastNativeStatusSignature) return;
+        lastNativeStatusSignature = signature;
+
+        nativeVpnRunning = !!status.running;
+        nativeVpnStarting = !!status.starting;
+        nativeVpnCoreRunning = !!status.coreRunning;
+        nativeVpnReconnecting = !!status.reconnecting;
+        nativeVpnAlwaysOn = !!status.alwaysOn;
+        nativeVpnLockdown = !!status.lockdown;
+
+        const nativeActive = nativeVpnRunning || nativeVpnStarting || nativeVpnCoreRunning || nativeVpnReconnecting;
+        if (!nativeActive) {
+            activeLink = null;
+            localStorage.removeItem('karin_active_link');
+            sessionStorage.removeItem('karin_active_link');
+        } else if (!activeLink) {
+            const persistedActiveLink = localStorage.getItem('karin_active_link');
+            activeLink = persistedActiveLink || selectedProfileUrl || null;
+        }
+
+        renderAndroidSystemVpnStatus();
+        updateStatusUI();
+
+        if (status.lastError) {
+            console.debug('Native VPN runtime error:', status.lastError);
+        }
+    } catch (error) {
+        console.debug('Android VPN status poll failed:', error);
+    } finally {
+        nativeStatusPollInFlight = false;
+    }
+}
+
+function startAndroidVpnStateMonitor() {
+    if (nativeStatusInterval !== null) {
+        window.clearInterval(nativeStatusInterval);
+        nativeStatusInterval = null;
+    }
+
+    if (runtimeInfo.platform !== 'android') return;
+
+    void pollAndroidVpnState();
+    nativeStatusInterval = window.setInterval(() => {
+        void pollAndroidVpnState();
+    }, 2500);
+}
+
 async function init() {
     try {
         runtimeInfo = await invoke<RuntimeInfo>('get_runtime_info');
@@ -1457,6 +1525,7 @@ async function init() {
     }
     renderAndroidSystemVpnStatus();
     await restoreAndroidVpnState();
+    startAndroidVpnStateMonitor();
 
     const versionNodes = document.querySelectorAll('.app-version-text');
     versionNodes.forEach(node => { node.textContent = `v ${runtimeInfo.version}`; });
@@ -1612,8 +1681,17 @@ async function init() {
     });
 
     document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible' && runtimeInfo.platform === 'android') {
-            void restoreAndroidVpnState().then(() => updateStatusUI());
+        if (runtimeInfo.platform !== 'android') return;
+
+        if (document.visibilityState === 'visible') {
+            void restoreAndroidVpnState().then(() => {
+                updateStatusUI();
+                lastNativeStatusSignature = '';
+                startAndroidVpnStateMonitor();
+            });
+        } else if (nativeStatusInterval !== null) {
+            window.clearInterval(nativeStatusInterval);
+            nativeStatusInterval = null;
         }
     });
 
