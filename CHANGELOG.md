@@ -2,6 +2,25 @@
 
 All notable Android-port changes are tracked here.
 
+## [0.1.0-alpha.19] - 2026-10-06
+
+Major Android APK size reduction.
+
+### Changed
+- Cargo dev profile now disables native debug info and strips Rust symbols from debug-installable Android builds.
+- The APK remains a normal debug-signed package suitable for direct installation and testing.
+- KarinCore's runtime/native diagnostic logging remains available; only compiler/linker symbol baggage is removed.
+
+### Size
+- Android APK reduced from approximately 230.7 MB to 73.7 MB.
+- `libkarin_proxy_lib.so` reduced from approximately 170.5 MB to 20.7 MB.
+- Xray `libgojni.so` remains approximately 34.3 MB and is now the largest native library in the APK.
+
+### Verified
+- Stripped debug APK completes the full arm64 Android build in GitHub Actions.
+- The generated APK still contains the expected arm64 Rust and Xray native libraries.
+
+
 ## [0.1.0-alpha.18] - 2026-10-06
 
 Embedded WireGuard outbound support on Android.
