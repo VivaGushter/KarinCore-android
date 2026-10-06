@@ -1226,6 +1226,99 @@ async function checkApplicationUpdates() {
     }
 }
 
+function saveAppRoutingSettings() {
+    localStorage.setItem('karin_app_routing_mode', JSON.stringify(appRoutingMode));
+    localStorage.setItem('karin_app_packages', JSON.stringify(Array.from(selectedAppPackages)));
+}
+
+function renderAppRoutingSummary() {
+    if (!appRoutingSummary || !appRoutingChoose) return;
+    const selected = selectedAppPackages.size;
+    appRoutingSummary.textContent = `${selected} ${t('settings_app_routing_selected')}`;
+    appRoutingChoose.disabled = appRoutingMode === 'all';
+    appRoutingChoose.style.opacity = appRoutingMode === 'all' ? '0.55' : '1';
+}
+
+function renderInstalledApps(filter = '') {
+    if (!appRoutingList) return;
+    appRoutingList.innerHTML = '';
+    const query = filter.trim().toLowerCase();
+
+    installedApps
+        .filter(app => !query || app.label.toLowerCase().includes(query) || app.packageName.toLowerCase().includes(query))
+        .forEach(app => {
+            const row = document.createElement('label');
+            row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 8px;border-bottom:1px solid var(--border-color);cursor:pointer;';
+
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.checked = selectedAppPackages.has(app.packageName);
+            checkbox.addEventListener('change', () => {
+                if (checkbox.checked) selectedAppPackages.add(app.packageName);
+                else selectedAppPackages.delete(app.packageName);
+                saveAppRoutingSettings();
+                renderAppRoutingSummary();
+            });
+
+            const text = document.createElement('div');
+            text.style.cssText = 'min-width:0;flex:1;';
+
+            const label = document.createElement('div');
+            label.textContent = app.label;
+            label.style.cssText = 'font-size:13px;color:var(--text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+
+            const pkg = document.createElement('div');
+            pkg.textContent = app.packageName + (app.system ? ` · ${t('settings_app_routing_system')}` : '');
+            pkg.style.cssText = 'font-size:10px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
+
+            text.append(label, pkg);
+            row.append(checkbox, text);
+            appRoutingList.appendChild(row);
+        });
+}
+
+function renderAndroidSystemVpnStatus() {
+    const section = document.getElementById('android-system-vpn-section') as HTMLDivElement | null;
+    const desktopSection = document.getElementById('desktop-kill-switch-section') as HTMLDivElement | null;
+    const status = document.getElementById('android-system-vpn-status') as HTMLDivElement | null;
+
+    if (runtimeInfo.platform !== 'android') {
+        if (section) section.style.display = 'none';
+        if (desktopSection) desktopSection.style.display = 'block';
+        return;
+    }
+
+    if (section) section.style.display = 'block';
+    if (desktopSection) desktopSection.style.display = 'none';
+
+    if (status) {
+        status.textContent = nativeVpnLockdown
+            ? t('settings_android_lockdown_on')
+            : nativeVpnAlwaysOn
+                ? t('settings_android_always_on')
+                : t('settings_android_always_off');
+    }
+}
+
+async function initAndroidAppRouting() {
+    try {
+        const apps = await invoke<InstalledApp[]>('get_installed_apps');
+        if (!Array.isArray(apps) || apps.length === 0) return;
+
+        installedApps = apps;
+        if (androidAppRoutingSection) androidAppRoutingSection.style.display = 'block';
+        if (appRoutingModeSelect) appRoutingModeSelect.value = appRoutingMode;
+
+        const installedPackageNames = new Set(installedApps.map(app => app.packageName));
+        selectedAppPackages = new Set(Array.from(selectedAppPackages).filter(pkg => installedPackageNames.has(pkg)));
+        saveAppRoutingSettings();
+        renderAppRoutingSummary();
+        renderInstalledApps();
+    } catch (error) {
+        console.debug('Per-app routing is unavailable on this platform:', error);
+    }
+}
+
 // **********************************
 // INITIALIZATION & EVENT LISTENERS
 // **********************************
