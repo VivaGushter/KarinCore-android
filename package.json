@@ -11,7 +11,8 @@
     "android:init": "tauri android init",
     "android:dev": "tauri android dev",
     "android:build": "tauri android build",
-    "android:core": "bash scripts/fetch-libv2ray.sh"
+    "android:core": "bash scripts/fetch-libv2ray.sh",
+    "version:check": "python scripts/check-version.py"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.0",
