@@ -2,6 +2,24 @@
 
 All notable Android-port changes are tracked here.
 
+## [0.1.0-alpha.14] - 2026-10-06
+
+Foreground VPN notification actions.
+
+### Added
+- Quick Disconnect action in the Android foreground VPN notification when Always-on VPN is disabled.
+- VPN Settings action in the notification when Android Always-on VPN is active.
+- Notification is explicitly categorized as a private ongoing service notification.
+
+### Safety
+- Service-level stop requests are ignored while Android reports Always-on VPN enabled.
+- This prevents a notification action or stale pending intent from fighting Android's Always-on restart behavior.
+
+### Verified
+- Notification-action feature commit completes the full arm64 debug APK build in GitHub Actions.
+- Release publication is handled by the automatic Android release workflow.
+
+
 ## [0.1.0-alpha.13] - 2026-10-06
 
 Privacy-conscious Android diagnostics export.
