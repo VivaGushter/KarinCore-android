@@ -2,7 +2,7 @@
   <img src="public/karincore-icon-main.png" alt="KarinCore" width="160"/>
   <h1>KarinCore Android</h1>
   <p>Android port of KarinCore powered by Tauri 2, Rust, Android VpnService and Xray-core.</p>
-  <p><strong>Current version: 0.1.0-alpha.10</strong></p>
+  <p><strong>Current version: 0.1.0-alpha.11</strong></p>
   <p><a href="README-ru.md">Русская версия</a></p>
 </div>
 
@@ -12,9 +12,9 @@ This repository is an experimental Android port of [detestern/KarinCore](https:/
 
 The shared KarinCore TypeScript UI and Rust parsing/routing logic are retained. Linux-specific tunnel setup is replaced on Android by a native `VpnService` bridge and Xray TUN integration.
 
-Version `0.1.0-alpha.10` is validated by a complete arm64 debug APK build in GitHub Actions. Real-device runtime validation is the next verification step.
+Version `0.1.0-alpha.11` is validated by a complete arm64 debug APK build in GitHub Actions. Real-device runtime validation is the next verification step.
 
-## Implemented through 0.1.0-alpha.10
+## Implemented through 0.1.0-alpha.11
 
 - Tauri 2 mobile entry point.
 - Native Android `VpnService`.
@@ -41,7 +41,8 @@ Version `0.1.0-alpha.10` is validated by a complete arm64 debug APK build in Git
 - Android Always-on VPN is supported with persisted last-successful native connection state for system restarts and reboot recovery.
 - Android Settings integration exposes the system VPN screen for Always-on VPN and Block connections without VPN (lockdown) configuration.
 - Android reports Always-on/lockdown state in Settings and prevents misleading manual disconnect attempts while Always-on mode is active.
-- Subscription loading has bounded connect/request timeouts, redirect limits and explicit network/TLS error reporting instead of indefinite Loading state.
+- Subscription loading on Android uses a native Kotlin HTTP path instead of Rust reqwest, with bounded connect/read timeouts, redirect limits and explicit TLS/network errors.
+- The frontend has an independent 25 second subscription watchdog, so the UI cannot remain stuck in Loading even if the native bridge fails to return.
 - Android uses Rustls for `reqwest`; the desktop path keeps the upstream native TLS setup.
 
 Not implemented yet on Android: OpenVPN/WireGuard chaining and additional real-device UI/runtime polish. Always-on/lockdown behavior still requires real-device validation across OEM Android variants.
