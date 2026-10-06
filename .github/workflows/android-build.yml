@@ -12,10 +12,12 @@ on:
       - "vite.config.ts"
       - "tsconfig.json"
       - "scripts/fetch-libv2ray.sh"
+      - "VERSION"
+      - "CHANGELOG.md"
       - ".github/workflows/android-build.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: android-build-${{ github.ref }}
@@ -97,3 +99,48 @@ jobs:
             src-tauri/gen/android/app/build/outputs/**/*.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish GitHub release
+        if: success() && github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release:')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          VERSION="$(tr -d '[:space:]' < VERSION)"
+          TAG="v${VERSION}"
+          APK="$(find src-tauri/gen/android/app/build/outputs -type f -name '*.apk' | head -n 1)"
+
+          if [ -z "$APK" ]; then
+            echo "APK not found"
+            exit 1
+          fi
+
+          RELEASE_APK="KarinCore-Android-v${VERSION}-arm64-debug.apk"
+          cp "$APK" "$RELEASE_APK"
+
+          awk -v version="$VERSION" '
+            index($0, "## [" version "]") == 1 { active=1; next }
+            active && /^## \[/ { exit }
+            active { print }
+          ' CHANGELOG.md > release-notes.md
+
+          if [ ! -s release-notes.md ]; then
+            printf 'KarinCore Android v%s\n' "$VERSION" > release-notes.md
+          fi
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$RELEASE_APK" --clobber
+          else
+            EXTRA_ARGS=()
+            if [[ "$VERSION" == *-* ]]; then
+              EXTRA_ARGS+=(--prerelease)
+            fi
+
+            gh release create "$TAG" "$RELEASE_APK" \
+              --target "$GITHUB_SHA" \
+              --title "KarinCore Android v${VERSION}" \
+              --notes-file release-notes.md \
+              "${EXTRA_ARGS[@]}"
+          fi

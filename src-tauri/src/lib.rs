@@ -1826,11 +1826,7 @@ fn get_runtime_info() -> serde_json::Value {
     serde_json::json!({
         "platform": if cfg!(target_os = "android") { "android" } else { "desktop" },
         "version": env!("CARGO_PKG_VERSION"),
-        "updateRepo": if cfg!(target_os = "android") {
-            "VivaGushter/KarinCore-android"
-        } else {
-            "detestern/KarinCore"
-        }
+        "updateRepo": "VivaGushter/KarinCore-android"
     })
 }
 

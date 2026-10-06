@@ -13,6 +13,8 @@ type ZoneKey = 'direct' | 'proxy' | 'block';
 type AppRoutingMode = 'all' | 'allowlist' | 'denylist';
 interface InstalledApp { label: string; packageName: string; system: boolean; }
 interface RuntimeInfo { platform: 'android' | 'desktop'; version: string; updateRepo: string; }
+const PROJECT_REPO = 'VivaGushter/KarinCore-android';
+const UPSTREAM_REPO = 'detestern/KarinCore';
 interface VpnRuntimeStatus {
     running: boolean;
     starting: boolean;
@@ -40,7 +42,7 @@ function safeParse(key: string, fallback: any): any {
     }
 }
 
-let runtimeInfo: RuntimeInfo = { platform: 'desktop', version: '0.0.0', updateRepo: 'detestern/KarinCore' };
+let runtimeInfo: RuntimeInfo = { platform: 'desktop', version: '0.0.0', updateRepo: PROJECT_REPO };
 let nativeVpnRunning = false;
 let nativeVpnStarting = false;
 let nativeVpnCoreRunning = false;
@@ -1016,7 +1018,7 @@ function renderAboutPage() {
                 <img src="/karin-about.png" alt="KarinCore" style="width: 90px; height: 90px; border-radius: 16px; object-fit: cover; border: 2px solid var(--accent); box-shadow: 0 0 15px rgba(203, 166, 247, 0.15);">
                 <div>
                     <h2 style="margin: 0; color: var(--accent); font-weight: 600; font-size: 26px; letter-spacing: 0.5px;">KarinCore</h2>
-                    <div style="font-size: 13px; color: var(--success); margin-top: 4px; font-family: monospace;">${t('about_version')}</div>
+                    <div style="font-size: 13px; color: var(--success); margin-top: 4px; font-family: monospace;">KarinCore Android v${runtimeInfo.version}</div>
                 </div>
             </div>
             
@@ -1039,10 +1041,9 @@ function renderAboutPage() {
                 </div>
                 
                 <div style="background: var(--base-crust); border: 1px solid var(--border-color); padding: 12px; border-radius: 8px; font-family: monospace; font-size: 13px; display: flex; flex-direction: column; gap: 4px; flex-shrink: 0;">
-                    <div><span style="color: var(--accent);">• ${t('about_author')}:</span> detestern</div>
-                    <div><span style="color: var(--accent);">• GitHub:</span> <span class="copyable-item" data-copy="https://github.com/detestern/KarinCore" style="color: var(--text-color);">https://github.com/detestern/KarinCore</span></div>
-                    <div><span style="color: var(--accent);">• ${t('about_contact')}:</span> <span class="copyable-item" data-copy="detestern@proton.me" style="color: var(--text-color);">detestern@proton.me</span></div>
-                    <div><span style="color: var(--accent);">• Crypto (USDT TRC20):</span> <span class="copyable-item" data-copy="TQCQhGQD6xgaDxwqAVcTiapS6rdcPyf24X" style="color: var(--success);">[TQCQhGQD6xgaDxwqAVcTiapS6rdcPyf24X]</span></div>
+                    <div><span style="color: var(--accent);">• ${t('about_author')}:</span> VivaGushter</div>
+                    <div><span style="color: var(--accent);">• GitHub:</span> <span class="copyable-item" data-copy="https://github.com/${PROJECT_REPO}" style="color: var(--text-color);">https://github.com/${PROJECT_REPO}</span></div>
+                    <div><span style="color: var(--accent);">• Upstream:</span> <span class="copyable-item" data-copy="https://github.com/${UPSTREAM_REPO}" style="color: var(--text-dim);">https://github.com/${UPSTREAM_REPO}</span></div>
                 </div>
                 
                 <div style="margin-top: 4px; background: var(--base-crust); border: 1px solid var(--border-color); padding: 14px; border-radius: 8px; flex-shrink: 0; position: relative; overflow: hidden;">
@@ -1141,134 +1142,87 @@ function addRule(value: string, type: string) {
 // **********************************
 // APPLICATION UPDATE CHECKER
 // **********************************
+function compareProjectVersions(left: string, right: string): number {
+    const parse = (value: string) => {
+        const normalized = value.trim().replace(/^v/, '');
+        const [core, prerelease = ''] = normalized.split('-', 2);
+        return {
+            core: core.split('.').map(part => Number.parseInt(part, 10) || 0),
+            prerelease: prerelease ? prerelease.split('.') : []
+        };
+    };
+
+    const a = parse(left);
+    const b = parse(right);
+    const width = Math.max(a.core.length, b.core.length);
+
+    for (let i = 0; i < width; i++) {
+        const av = a.core[i] || 0;
+        const bv = b.core[i] || 0;
+        if (av !== bv) return av > bv ? 1 : -1;
+    }
+
+    if (a.prerelease.length === 0 && b.prerelease.length === 0) return 0;
+    if (a.prerelease.length === 0) return 1;
+    if (b.prerelease.length === 0) return -1;
+
+    const preWidth = Math.max(a.prerelease.length, b.prerelease.length);
+    for (let i = 0; i < preWidth; i++) {
+        const av = a.prerelease[i];
+        const bv = b.prerelease[i];
+        if (av === undefined) return -1;
+        if (bv === undefined) return 1;
+        if (av === bv) continue;
+
+        const an = /^\d+$/.test(av) ? Number.parseInt(av, 10) : null;
+        const bn = /^\d+$/.test(bv) ? Number.parseInt(bv, 10) : null;
+
+        if (an !== null && bn !== null) return an > bn ? 1 : -1;
+        if (an !== null) return -1;
+        if (bn !== null) return 1;
+        return av.localeCompare(bv);
+    }
+
+    return 0;
+}
+
 async function checkApplicationUpdates() {
     const statusEl = document.getElementById('update-status');
     if (!statusEl) return;
 
+    const repo = PROJECT_REPO;
+    const versionUrl = `https://raw.githubusercontent.com/${repo}/main/VERSION?_=${Date.now()}`;
+
     try {
-        const apiUrl = `https://api.github.com/repos/${runtimeInfo.updateRepo}/releases/latest`;
-        const releasesUrl = `https://github.com/${runtimeInfo.updateRepo}/releases/latest`;
-        const response = await fetch(apiUrl);
-        if (!response.ok) {
-            statusEl.innerHTML = `<span style="opacity:0.6;">v${runtimeInfo.version}</span>`;
+        const response = await fetch(versionUrl, { cache: 'no-store' });
+        if (!response.ok) throw new Error(`VERSION_HTTP_${response.status}`);
+
+        const latestVersion = (await response.text()).trim().replace(/^v/, '');
+        if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(latestVersion)) {
+            throw new Error('VERSION_FORMAT_INVALID');
+        }
+
+        const relation = compareProjectVersions(latestVersion, runtimeInfo.version);
+        if (relation <= 0) {
+            statusEl.innerHTML = `<span style="opacity: 0.6;">v${runtimeInfo.version} · ${t('update_current')}</span>`;
             return;
         }
 
-        const data = await response.json();
-        const latestVersion = String(data.tag_name || '').replace(/^v/, '').trim();
+        const releaseUrl = `https://github.com/${repo}/releases/tag/v${encodeURIComponent(latestVersion)}`;
+        statusEl.innerHTML = `
+            <a class="update-link" href="${releaseUrl}" target="_blank">
+                v${runtimeInfo.version} → v${latestVersion} · ${t('update_available')}
+                <span class="notification-dot"></span>
+            </a>
+        `;
 
-        if (!latestVersion || latestVersion === runtimeInfo.version) {
-            statusEl.innerHTML = `<span style="opacity: 0.6;">v${runtimeInfo.version} · ${t('update_current')}</span>`;
-        } else {
-            statusEl.innerHTML = `
-                <a class="update-link" href="${releasesUrl}" target="_blank">
-                    v${runtimeInfo.version} · ${t('update_available')}
-                    <span class="notification-dot"></span>
-                </a>
-            `;
-
-            const link = statusEl.querySelector('.update-link');
-            link?.addEventListener('click', (e) => {
-                e.preventDefault();
-                invoke('open_browser', { url: releasesUrl }).catch(console.error);
-            });
-        }
-    } catch (err) {
-        console.error("Update check failed:", err);
-        statusEl.innerHTML = `<span style="opacity:0.6;">v${runtimeInfo.version}</span>`;
-    }
-}
-
-function saveAppRoutingSettings() {
-    localStorage.setItem('karin_app_routing_mode', JSON.stringify(appRoutingMode));
-    localStorage.setItem('karin_app_packages', JSON.stringify(Array.from(selectedAppPackages)));
-}
-
-function renderAppRoutingSummary() {
-    if (!appRoutingSummary || !appRoutingChoose) return;
-    const selected = selectedAppPackages.size;
-    appRoutingSummary.textContent = `${selected} ${t('settings_app_routing_selected')}`;
-    appRoutingChoose.disabled = appRoutingMode === 'all';
-    appRoutingChoose.style.opacity = appRoutingMode === 'all' ? '0.55' : '1';
-}
-
-function renderInstalledApps(filter = '') {
-    if (!appRoutingList) return;
-    appRoutingList.innerHTML = '';
-    const query = filter.trim().toLowerCase();
-
-    installedApps
-        .filter(app => !query || app.label.toLowerCase().includes(query) || app.packageName.toLowerCase().includes(query))
-        .forEach(app => {
-            const row = document.createElement('label');
-            row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 8px;border-bottom:1px solid var(--border-color);cursor:pointer;';
-
-            const checkbox = document.createElement('input');
-            checkbox.type = 'checkbox';
-            checkbox.checked = selectedAppPackages.has(app.packageName);
-            checkbox.addEventListener('change', () => {
-                if (checkbox.checked) selectedAppPackages.add(app.packageName);
-                else selectedAppPackages.delete(app.packageName);
-                saveAppRoutingSettings();
-                renderAppRoutingSummary();
-            });
-
-            const text = document.createElement('div');
-            text.style.cssText = 'min-width:0;flex:1;';
-
-            const label = document.createElement('div');
-            label.textContent = app.label;
-            label.style.cssText = 'font-size:13px;color:var(--text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
-
-            const pkg = document.createElement('div');
-            pkg.textContent = app.packageName + (app.system ? ` · ${t('settings_app_routing_system')}` : '');
-            pkg.style.cssText = 'font-size:10px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
-
-            text.append(label, pkg);
-            row.append(checkbox, text);
-            appRoutingList.appendChild(row);
+        statusEl.querySelector('.update-link')?.addEventListener('click', (event) => {
+            event.preventDefault();
+            invoke('open_browser', { url: releaseUrl }).catch(console.error);
         });
-}
-
-function renderAndroidSystemVpnStatus() {
-    const section = document.getElementById('android-system-vpn-section') as HTMLDivElement | null;
-    const desktopSection = document.getElementById('desktop-kill-switch-section') as HTMLDivElement | null;
-    const status = document.getElementById('android-system-vpn-status') as HTMLDivElement | null;
-
-    if (runtimeInfo.platform !== 'android') {
-        if (section) section.style.display = 'none';
-        if (desktopSection) desktopSection.style.display = 'block';
-        return;
-    }
-
-    if (section) section.style.display = 'block';
-    if (desktopSection) desktopSection.style.display = 'none';
-
-    if (status) {
-        status.textContent = nativeVpnLockdown
-            ? t('settings_android_lockdown_on')
-            : nativeVpnAlwaysOn
-                ? t('settings_android_always_on')
-                : t('settings_android_always_off');
-    }
-}
-
-async function initAndroidAppRouting() {
-    try {
-        const apps = await invoke<InstalledApp[]>('get_installed_apps');
-        if (!Array.isArray(apps) || apps.length === 0) return;
-
-        installedApps = apps;
-        if (androidAppRoutingSection) androidAppRoutingSection.style.display = 'block';
-        if (appRoutingModeSelect) appRoutingModeSelect.value = appRoutingMode;
-
-        const installedPackageNames = new Set(installedApps.map(app => app.packageName));
-        selectedAppPackages = new Set(Array.from(selectedAppPackages).filter(pkg => installedPackageNames.has(pkg)));
-        saveAppRoutingSettings();
-        renderAppRoutingSummary();
-        renderInstalledApps();
     } catch (error) {
-        console.debug('Per-app routing is unavailable on this platform:', error);
+        console.error('Update check failed:', error);
+        statusEl.innerHTML = `<span style="opacity:0.6;">v${runtimeInfo.version}</span>`;
     }
 }
 
@@ -1321,6 +1275,7 @@ async function restoreAndroidVpnState() {
 async function init() {
     try {
         runtimeInfo = await invoke<RuntimeInfo>('get_runtime_info');
+        runtimeInfo.updateRepo = PROJECT_REPO;
     } catch (error) {
         console.debug('Runtime metadata unavailable:', error);
     }
