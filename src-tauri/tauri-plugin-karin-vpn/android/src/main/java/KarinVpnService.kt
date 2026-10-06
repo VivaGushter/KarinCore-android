@@ -34,6 +34,7 @@ class KarinVpnService : VpnService() {
     private var connectivityManager: ConnectivityManager? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var upstreamNetwork: Network? = null
+    private var upstreamWasLost: Boolean = false
     private val handoverReload = Runnable {
         worker.execute { reloadCoreForHandover() }
     }
@@ -198,11 +199,20 @@ class KarinVpnService : VpnService() {
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
                 val previous = upstreamNetwork
+                val recoveredAfterLoss = upstreamWasLost
                 upstreamNetwork = network
+                upstreamWasLost = false
                 setUnderlyingNetworks(arrayOf(network))
 
-                if (previous != null && previous != network && running) {
-                    recordLog("INFO", "Underlying network changed: $previous -> $network")
+                if (running && ((previous != null && previous != network) || recoveredAfterLoss)) {
+                    recordLog(
+                        "INFO",
+                        if (recoveredAfterLoss) {
+                            "Underlying network recovered after loss: $network"
+                        } else {
+                            "Underlying network changed: $previous -> $network"
+                        }
+                    )
                     mainHandler.removeCallbacks(handoverReload)
                     mainHandler.postDelayed(handoverReload, HANDOVER_DEBOUNCE_MS)
                 }
@@ -219,7 +229,9 @@ class KarinVpnService : VpnService() {
 
             override fun onLost(network: Network) {
                 if (network == upstreamNetwork) {
+                    recordLog("WARN", "Underlying network lost: $network")
                     upstreamNetwork = null
+                    upstreamWasLost = true
                     setUnderlyingNetworks(null)
                 }
             }
@@ -242,6 +254,7 @@ class KarinVpnService : VpnService() {
         networkCallback = null
         connectivityManager = null
         upstreamNetwork = null
+        upstreamWasLost = false
         setUnderlyingNetworks(null)
 
         if (callback != null && connectivity != null) {
@@ -340,6 +353,7 @@ class KarinVpnService : VpnService() {
     }
 
     override fun onRevoke() {
+        recordLog("WARN", "Android revoked VPN permission")
         worker.execute { stopTunnel(stopService = true) }
         super.onRevoke()
     }
