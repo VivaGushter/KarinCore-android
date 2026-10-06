@@ -2,6 +2,34 @@
 
 All notable Android-port changes are tracked here.
 
+## [0.1.0-alpha.18] - 2026-10-06
+
+Embedded WireGuard outbound support on Android.
+
+### Added
+- Android support for existing `wg://?payload=<base64>` profiles.
+- wg-quick style configuration parsing for Interface and multiple Peer sections.
+- Supported WireGuard fields: PrivateKey, Address, DNS, MTU, PublicKey, PresharedKey, Endpoint, AllowedIPs, PersistentKeepalive and optional Reserved bytes.
+- Plain and Base64 subscriptions now retain `wg://` profiles.
+- Manual profile input accepts `wg://` links.
+- WireGuard profile naming/info fallbacks no longer depend on a hostname being present in the URL.
+
+### Architecture
+- Android WireGuard uses Xray's built-in userspace WireGuard outbound.
+- `noKernelTun: true` forces Xray to use its in-process network stack instead of creating another system TUN.
+- The existing Android `VpnService` remains the only system VPN interface.
+- WireGuard endpoint sockets stay outside the Android VPN because the KarinCore package itself is excluded from the TUN.
+- Android TUN MTU is reduced to 1420 for WireGuard profiles.
+
+### Compatibility
+- Existing Linux WireGuard behavior using wg-quick is unchanged.
+- OpenVPN remains unsupported on Android for now.
+
+### Verified
+- Combined WireGuard outbound and subscription/input integration completes the full arm64 debug APK build in GitHub Actions.
+- Release publication is handled by the automatic Android release workflow.
+
+
 ## [0.1.0-alpha.17] - 2026-10-06
 
 Network-family diagnostics and VPN notification polish.

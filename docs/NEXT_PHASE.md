@@ -1,6 +1,6 @@
 # Phase 3 status
 
-Current version: `0.1.0-alpha.17`
+Current version: `0.1.0-alpha.18`
 
 ## Completed
 
@@ -22,7 +22,7 @@ Current version: `0.1.0-alpha.17`
 
 1. Real-device validation: connect/disconnect, VLESS/Reality traffic, DNS, IPv4/IPv6, per-app modes and Wi-Fi/cellular handovers.
 2. Real-device validation of Always-on VPN and Block connections without VPN across reboot.
-3. WireGuard transport/chaining.
+3. Real-device validation of embedded WireGuard profiles.
 4. OpenVPN transport/chaining.
 5. Further mobile UI polish from device testing.
 
