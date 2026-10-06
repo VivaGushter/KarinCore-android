@@ -15,6 +15,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelFileDescriptor
+import android.provider.Settings
 import android.util.Log
 import android.text.format.DateFormat
 import androidx.core.app.NotificationCompat
@@ -96,9 +97,17 @@ class KarinVpnService : VpnService() {
         refreshSystemVpnFlags()
 
         when (intent?.action) {
-            ACTION_STOP -> worker.execute {
-                clearPersistedConnection()
-                stopTunnel(stopService = true)
+            ACTION_STOP -> {
+                refreshSystemVpnFlags()
+                if (alwaysOn) {
+                    recordLog("WARN", "Ignoring stop request while Android Always-on VPN is enabled")
+                    updateNotification("Always-on VPN включён")
+                } else {
+                    worker.execute {
+                        clearPersistedConnection()
+                        stopTunnel(stopService = true)
+                    }
+                }
             }
             ACTION_START -> {
                 val configJson = intent.getStringExtra(EXTRA_CONFIG_JSON).orEmpty()
@@ -493,8 +502,10 @@ class KarinVpnService : VpnService() {
     }
 
     private fun buildNotification(text: String): android.app.Notification {
+        refreshSystemVpnFlags()
+
         val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
-        val pendingIntent = launchIntent?.let {
+        val launchPendingIntent = launchIntent?.let {
             PendingIntent.getActivity(
                 this,
                 0,
@@ -503,14 +514,47 @@ class KarinVpnService : VpnService() {
             )
         }
 
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
             .setContentTitle("KarinCore")
             .setContentText(text)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
-            .setContentIntent(pendingIntent)
-            .build()
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setContentIntent(launchPendingIntent)
+
+        if (alwaysOn) {
+            val settingsIntent = Intent(Settings.ACTION_VPN_SETTINGS)
+            val settingsPendingIntent = PendingIntent.getActivity(
+                this,
+                2,
+                settingsIntent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+            builder.addAction(
+                android.R.drawable.ic_menu_manage,
+                "VPN settings",
+                settingsPendingIntent
+            )
+        } else {
+            val stopIntent = Intent(this, KarinVpnService::class.java).apply {
+                action = ACTION_STOP
+            }
+            val stopPendingIntent = PendingIntent.getService(
+                this,
+                1,
+                stopIntent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+            builder.addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                "Disconnect",
+                stopPendingIntent
+            )
+        }
+
+        return builder.build()
     }
 
     private inner class CoreCallback : CoreCallbackHandler {
