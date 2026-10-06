@@ -2,6 +2,26 @@
 
 All notable Android-port changes are tracked here.
 
+## [0.1.0-alpha.21] - 2026-10-06
+
+Automated Rust parser and configuration regression coverage.
+
+### Added
+- Ten unit tests covering VLESS/Reality, VMess, Trojan and Shadowsocks outbound generation.
+- Subscription tests for plain, unpadded Base64 and JSON inputs, including imported routing and DNS.
+- WireGuard tests for Base64 payloads, executable-directive sanitization, required-field validation, defaults and Xray userspace outbound generation.
+- Routing, DNS generation and diagnostic secret-redaction regression tests.
+- A dedicated Rust core test job in Repository checks with cached Rust dependencies.
+
+### Fixed
+- WireGuard profile URIs are now redacted from exported diagnostic log content alongside the other supported secret-bearing profile formats.
+- Desktop-host Rust compilation now resolves the VPN plugin runtime type explicitly and keeps the OpenVPN helper call signature synchronized.
+
+### Verified
+- All ten Rust core tests pass in a Linux/Tauri host build.
+- The feature commit completes Repository checks and the full arm64 debug APK build in GitHub Actions.
+- Release publication is handled by the automatic Android release workflow.
+
 ## [0.1.0-alpha.20] - 2026-10-06
 
 Refreshable subscription groups.
