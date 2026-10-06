@@ -2,6 +2,29 @@
 
 All notable Android-port changes are tracked here.
 
+## [0.1.0-alpha.17] - 2026-10-06
+
+Network-family diagnostics and VPN notification polish.
+
+### Added
+- Separate IPv4 and IPv6 proxy-path checks in the built-in Android VPN self-test.
+- IPv4 probe uses `https://api4.ipify.org`.
+- IPv6 probe uses `https://api6.ipify.org`.
+- KarinCore monochrome shield icon for the Android foreground VPN notification.
+- Android resource strings for notification states and actions, with Russian localization.
+
+### Changed
+- Generic external-IP lookup now uses HTTPS.
+- Proxy latency/connectivity check now uses Cloudflare's HTTPS 204 endpoint.
+- IPv6 absence is reported as an informational warning instead of failing the whole VPN self-test.
+- IPv4 and the forced HTTPS proxy path remain required for a passing self-test.
+- Notification connection, restore, handover and error text is no longer hardcoded in Kotlin.
+
+### Verified
+- Combined network-diagnostics and notification-resource feature build completes the full arm64 debug APK build in GitHub Actions.
+- Release publication is handled by the automatic Android release workflow.
+
+
 ## [0.1.0-alpha.16] - 2026-10-06
 
 Live Android UI synchronization with native VPN state.
