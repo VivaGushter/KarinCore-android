@@ -2,6 +2,27 @@
 
 All notable Android-port changes are tracked here.
 
+## [0.1.0-alpha.3] - 2026-10-06
+
+Network handover recovery.
+
+### Added
+- Android underlying-network monitoring on Android P and newer.
+- Debounced detection of Wi-Fi/cellular handovers.
+- In-place Xray core restart using the existing TUN file descriptor.
+- Up to three Xray restart attempts after an upstream network change.
+- `reconnecting` state exposed through the native VPN status bridge.
+- `ACCESS_NETWORK_STATE` and `CHANGE_NETWORK_STATE` permissions required for underlying-network monitoring.
+
+### Behavior
+- The TUN interface stays established during an Xray handover restart.
+- A failed handover restart keeps the VPN interface active instead of silently falling back to direct traffic.
+- The foreground notification reflects reconnecting and reconnect-failure states.
+
+### Verified
+- Complete arm64 debug APK build succeeds in GitHub Actions after the handover implementation.
+
+
 ## [0.1.0-alpha.2] - 2026-10-06
 
 First CI-validated Android APK build.
