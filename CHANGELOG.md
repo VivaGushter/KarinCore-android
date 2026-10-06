@@ -2,6 +2,25 @@
 
 All notable Android-port changes are tracked here.
 
+## [0.1.0-alpha.5] - 2026-10-06
+
+Android-native VPN and Xray event logs.
+
+### Added
+- In-memory Android VPN/Xray event log buffer capped at 500 lines.
+- Existing Logs tab now reads native Android service logs instead of Linux file paths.
+- Native clear-log bridge for Android.
+- Log entries for VPN startup, Xray initialization, per-app routing state, network handovers, reconnect attempts, errors and Xray status callbacks.
+- Timestamped log entries while retaining matching Logcat output.
+
+### Behavior
+- Logs stay scoped to KarinCore VPN events instead of exposing unrelated system Logcat output.
+- The bounded buffer prevents unbounded log growth during long-running VPN sessions.
+
+### Verified
+- Complete arm64 debug APK build succeeds in GitHub Actions with native Android logging enabled.
+
+
 ## [0.1.0-alpha.4] - 2026-10-06
 
 Per-app split tunneling.
