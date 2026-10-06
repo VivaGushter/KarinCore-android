@@ -10,7 +10,7 @@ KarinCore Android является Android-портом проекта `detester
 - Основная ветка: `main`
 - Текущая версия: `0.1.0-alpha.20`
 - Android `versionCode`: `20`
-- Зафиксированный HEAD на момент handoff: `755d0f10ce506f5a18fcc684d0dc275b0c026772`
+- Release code baseline: `755d0f10ce506f5a18fcc684d0dc275b0c026772`
 - База upstream: KarinCore 1.3.7
 - Upstream commit: `b7fea2e2ff5e1492fd863381985fdebb4da7a57e`
 - Package ID: `com.vivagushter.karincore`
