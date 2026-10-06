@@ -2,7 +2,7 @@
   <img src="public/karincore-icon-main.png" alt="KarinCore" width="160"/>
   <h1>KarinCore Android</h1>
   <p>Android-порт KarinCore на Tauri 2, Rust, Android VpnService и Xray-core.</p>
-  <p><strong>Текущая версия: 0.1.0-alpha.6</strong></p>
+  <p><strong>Текущая версия: 0.1.0-alpha.7</strong></p>
   <p><a href="README.md">English</a></p>
 </div>
 
@@ -12,9 +12,9 @@
 
 В Android-порте сохранены интерфейс на TypeScript/Vite и общая Rust-логика KarinCore: парсинг ссылок, подписки, маршрутизация, DNS и профили. Linux-часть с `sudo`, systemd, `route.sh`, iptables и системным Xray на Android заменена нативным `VpnService`.
 
-Версия `0.1.0-alpha.6` успешно проходит полную CI-сборку arm64 debug APK в GitHub Actions. Следующий контрольный этап: запуск и проверка на реальном Android-устройстве.
+Версия `0.1.0-alpha.7` успешно проходит полную CI-сборку arm64 debug APK в GitHub Actions. Следующий контрольный этап: запуск и проверка на реальном Android-устройстве.
 
-## Реализовано к 0.1.0-alpha.6
+## Реализовано к 0.1.0-alpha.7
 
 - мобильная точка входа Tauri 2;
 - Android `VpnService`;
@@ -35,6 +35,8 @@
 - экспорт профилей маршрутизации использует системный Android document picker;
 - мобильная верстка скрывает desktop titlebar, учитывает safe-area и перестраивает маршрутизацию в вертикальный вид на узких экранах;
 - версия приложения и репозиторий обновлений берутся из Rust, без хардкода во frontend;
+- package visibility для launcher-приложений объявлена явно, чтобы список per-app routing не обрезался на Android 11+;
+- восстановление сети обрабатывает как make-before-break, так и break-before-make сценарии;
 - для Android `reqwest` использует Rustls.
 
 Пока не реализованы: цепочки OpenVPN/WireGuard и дополнительная полировка после тестов на реальном устройстве.

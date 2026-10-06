@@ -2,6 +2,25 @@
 
 All notable Android-port changes are tracked here.
 
+## [0.1.0-alpha.7] - 2026-10-06
+
+Android runtime hardening.
+
+### Added
+- Android package-visibility query for launcher applications used by the per-app selector.
+- Recovery after break-before-make network transitions where the old upstream disappears before the new one is available.
+- VPN permission revocation event logging.
+
+### Changed
+- Underlying-network recovery now differentiates direct handovers from recovery after complete network loss.
+- GitHub Actions Android workflow uses current checkout/setup Java/setup Node major versions.
+
+### Verified
+- Xray-core Android documentation confirms the TUN descriptor is supplied through `xray.tun.fd`.
+- Pinned AndroidLibXrayLite `v26.9.30` sets `xray.tun.fd` inside `CoreController.startLoop(config, tunFd)`.
+- Complete arm64 debug APK build succeeds in GitHub Actions after runtime hardening.
+
+
 ## [0.1.0-alpha.6] - 2026-10-06
 
 Mobile UI and Android document export.

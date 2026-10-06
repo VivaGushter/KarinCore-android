@@ -1,19 +1,20 @@
 # Phase 3 status
 
-Current version: `0.1.0-alpha.6`
+Current version: `0.1.0-alpha.7`
 
 ## Completed
 
 1. Android network-change monitoring.
-2. Debounced Wi-Fi/cellular handover detection.
+2. Make-before-break and break-before-make network recovery.
 3. In-place Xray restart without recreating the Android TUN.
 4. Per-app split tunneling with allowlist and bypass modes.
-5. Native installed-application discovery and searchable selection UI.
+5. Native installed-application discovery with Android 11+ package visibility.
 6. Android-native VPN/Xray event logs in the existing Logs tab.
 7. Android system document picker for routing-profile export.
 8. Android-specific responsive layout and safe-area handling.
 9. Runtime-driven version/update metadata.
-10. CI-validated arm64 debug APK build.
+10. Xray Android TUN FD integration verified against pinned AndroidLibXrayLite source.
+11. CI-validated arm64 debug APK build.
 
 ## Planned
 
