@@ -16,6 +16,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.util.Log
+import android.text.format.DateFormat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import go.Seq
@@ -47,6 +48,7 @@ class KarinVpnService : VpnService() {
                 val appPackages = intent.getStringArrayListExtra(EXTRA_APP_PACKAGES)?.toList().orEmpty()
 
                 startInForeground("Подключение…")
+                recordLog("INFO", "VPN start requested; appRouting=$appRoutingMode, selectedApps=${appPackages.size}")
                 starting = true
                 lastError = null
 
@@ -54,7 +56,7 @@ class KarinVpnService : VpnService() {
                     try {
                         startTunnel(configJson, mtu, appRoutingMode, appPackages)
                     } catch (t: Throwable) {
-                        Log.e(TAG, "Failed to start VPN", t)
+                        recordLog("ERROR", "VPN start failed: ${t.message ?: t.javaClass.simpleName}", t)
                         lastError = t.message ?: t.javaClass.simpleName
                         stopTunnel(stopService = true)
                     } finally {
@@ -78,6 +80,7 @@ class KarinVpnService : VpnService() {
         // user-updated geo files without changing the integration API.
         Libv2ray.initCoreEnv(filesDir.absolutePath, "")
         coreVersion = Libv2ray.checkVersionX()
+        recordLog("INFO", "Xray core initialized: ${coreVersion.orEmpty()}")
         coreController = Libv2ray.newCoreController(CoreCallback())
     }
 
@@ -107,6 +110,7 @@ class KarinVpnService : VpnService() {
                 .addDnsServer("1.1.1.1")
 
             applyAppRouting(builder, appRoutingMode, appPackages)
+            recordLog("INFO", "App routing applied: mode=$appliedAppRoutingMode, packages=$appliedAppPackageCount")
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 builder.setMetered(false)
@@ -133,7 +137,7 @@ class KarinVpnService : VpnService() {
             lastError = null
             registerNetworkMonitor()
             updateNotification("VPN подключён")
-            Log.i(TAG, "KarinCore VPN started, fd=${pfd.fd}, core=$coreVersion")
+            recordLog("INFO", "VPN started, fd=${pfd.fd}, core=$coreVersion")
         }
     }
 
@@ -153,7 +157,7 @@ class KarinVpnService : VpnService() {
                     packageManager.getApplicationInfo(candidate, 0)
                     true
                 } catch (_: PackageManager.NameNotFoundException) {
-                    Log.w(TAG, "Ignoring missing package in app routing: $candidate")
+                    recordLog("WARN", "Ignoring missing package in app routing: $candidate")
                     false
                 }
             }
@@ -198,7 +202,7 @@ class KarinVpnService : VpnService() {
                 setUnderlyingNetworks(arrayOf(network))
 
                 if (previous != null && previous != network && running) {
-                    Log.i(TAG, "Underlying network changed: $previous -> $network")
+                    recordLog("INFO", "Underlying network changed: $previous -> $network")
                     mainHandler.removeCallbacks(handoverReload)
                     mainHandler.postDelayed(handoverReload, HANDOVER_DEBOUNCE_MS)
                 }
@@ -226,7 +230,7 @@ class KarinVpnService : VpnService() {
             connectivityManager = connectivity
             networkCallback = callback
         } catch (t: Throwable) {
-            Log.w(TAG, "Unable to register underlying network monitor", t)
+            recordLog("WARN", "Unable to register underlying network monitor: ${t.message ?: t.javaClass.simpleName}", t)
         }
     }
 
@@ -244,7 +248,7 @@ class KarinVpnService : VpnService() {
             try {
                 connectivity.unregisterNetworkCallback(callback)
             } catch (t: Throwable) {
-                Log.w(TAG, "Unable to unregister underlying network monitor", t)
+                recordLog("WARN", "Unable to unregister underlying network monitor: ${t.message ?: t.javaClass.simpleName}", t)
             }
         }
     }
@@ -281,11 +285,11 @@ class KarinVpnService : VpnService() {
                         coreRunning = true
                         lastError = null
                         updateNotification("VPN подключён")
-                        Log.i(TAG, "Xray reloaded after network handover on attempt $attempt")
+                        recordLog("INFO", "Xray reloaded after network handover on attempt $attempt")
                         return
                     } catch (t: Throwable) {
                         lastFailure = t
-                        Log.w(TAG, "Xray handover reload attempt $attempt failed", t)
+                        recordLog("WARN", "Xray handover reload attempt $attempt failed: ${t.message ?: t.javaClass.simpleName}", t)
                     }
                 }
 
@@ -313,7 +317,7 @@ class KarinVpnService : VpnService() {
                 coreController?.stopLoop()
             }
         } catch (t: Throwable) {
-            Log.w(TAG, "Xray shutdown failed", t)
+            recordLog("WARN", "Xray shutdown failed: ${t.message ?: t.javaClass.simpleName}", t)
             if (lastError == null) lastError = "Xray stop: ${t.message ?: t.javaClass.simpleName}"
         }
 
@@ -325,7 +329,7 @@ class KarinVpnService : VpnService() {
         try {
             vpnInterface?.close()
         } catch (t: Throwable) {
-            Log.w(TAG, "TUN close failed", t)
+            recordLog("WARN", "TUN close failed: ${t.message ?: t.javaClass.simpleName}", t)
         }
         vpnInterface = null
 
@@ -395,24 +399,54 @@ class KarinVpnService : VpnService() {
     private inner class CoreCallback : CoreCallbackHandler {
         override fun startup(): Long {
             coreRunning = true
-            Log.i(TAG, "Xray startup callback")
+            recordLog("INFO", "Xray startup callback")
             return 0
         }
 
         override fun shutdown(): Long {
             coreRunning = false
-            Log.i(TAG, "Xray shutdown callback")
+            recordLog("INFO", "Xray shutdown callback")
             return 0
         }
 
         override fun onEmitStatus(code: Long, message: String?): Long {
-            Log.i(TAG, "Xray status[$code]: ${message.orEmpty()}")
+            recordLog("XRAY", "status[$code]: ${message.orEmpty()}")
             return 0
         }
     }
 
     companion object {
         private const val TAG = "KarinVpnService"
+        private const val MAX_LOG_LINES = 500
+        private val logLock = Any()
+        private val logLines = ArrayDeque<String>()
+
+        private fun recordLog(level: String, message: String, throwable: Throwable? = null) {
+            val timestamp = DateFormat.format("HH:mm:ss", System.currentTimeMillis()).toString()
+            synchronized(logLock) {
+                logLines.addLast("$timestamp [$level] $message")
+                while (logLines.size > MAX_LOG_LINES) {
+                    logLines.removeFirst()
+                }
+            }
+
+            when (level) {
+                "ERROR" -> Log.e(TAG, message, throwable)
+                "WARN" -> Log.w(TAG, message, throwable)
+                else -> Log.i(TAG, message)
+            }
+        }
+
+        fun logsSnapshot(): String = synchronized(logLock) {
+            logLines.joinToString("\n")
+        }
+
+        fun clearLogBuffer() {
+            synchronized(logLock) {
+                logLines.clear()
+            }
+            recordLog("INFO", "Log buffer cleared")
+        }
         const val ACTION_START = "com.vivagushter.karincore.vpn.START"
         const val ACTION_STOP = "com.vivagushter.karincore.vpn.STOP"
         const val EXTRA_CONFIG_JSON = "config_json"

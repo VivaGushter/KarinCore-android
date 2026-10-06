@@ -2,7 +2,7 @@ mod error;
 mod models;
 
 pub use error::{Error, Result};
-pub use models::{InstalledApp, InstalledAppsResult, PrepareResult, StartRequest, VpnStatus};
+pub use models::{ClearLogsResult, InstalledApp, InstalledAppsResult, LogsResult, PrepareResult, StartRequest, VpnStatus};
 
 use tauri::{Manager, Runtime, plugin::TauriPlugin};
 
@@ -57,6 +57,30 @@ impl<R: Runtime> KarinVpn<R> {
     }
 
     #[cfg(target_os = "android")]
+    pub fn logs(&self) -> Result<LogsResult> {
+        self.mobile_plugin_handle
+            .run_mobile_plugin("logs", ())
+            .map_err(Error::from)
+    }
+
+    #[cfg(not(target_os = "android"))]
+    pub fn logs(&self) -> Result<LogsResult> {
+        Ok(LogsResult { content: String::new() })
+    }
+
+    #[cfg(target_os = "android")]
+    pub fn clear_logs(&self) -> Result<ClearLogsResult> {
+        self.mobile_plugin_handle
+            .run_mobile_plugin("clearLogs", ())
+            .map_err(Error::from)
+    }
+
+    #[cfg(not(target_os = "android"))]
+    pub fn clear_logs(&self) -> Result<ClearLogsResult> {
+        Ok(ClearLogsResult { cleared: true })
+    }
+
+    #[cfg(target_os = "android")]
     pub fn stop(&self) -> Result<VpnStatus> {
         self.mobile_plugin_handle
             .run_mobile_plugin("stop", ())
@@ -107,6 +131,16 @@ async fn list_apps<R: Runtime>(app: tauri::AppHandle<R>) -> Result<InstalledApps
 }
 
 #[tauri::command]
+async fn logs<R: Runtime>(app: tauri::AppHandle<R>) -> Result<LogsResult> {
+    app.karin_vpn().logs()
+}
+
+#[tauri::command]
+async fn clear_logs<R: Runtime>(app: tauri::AppHandle<R>) -> Result<ClearLogsResult> {
+    app.karin_vpn().clear_logs()
+}
+
+#[tauri::command]
 async fn stop<R: Runtime>(app: tauri::AppHandle<R>) -> Result<VpnStatus> {
     app.karin_vpn().stop()
 }
@@ -130,6 +164,6 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![prepare, start, list_apps, stop, status])
+        .invoke_handler(tauri::generate_handler![prepare, start, list_apps, logs, clear_logs, stop, status])
         .build()
 }

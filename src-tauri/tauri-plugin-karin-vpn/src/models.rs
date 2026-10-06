@@ -50,3 +50,16 @@ pub struct VpnStatus {
     pub core_version: Option<String>,
     pub last_error: Option<String>,
 }
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LogsResult {
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClearLogsResult {
+    pub cleared: bool,
+}

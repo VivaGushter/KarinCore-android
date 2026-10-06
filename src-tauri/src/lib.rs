@@ -1409,6 +1409,7 @@ async fn check_ping(_state: State<'_, ProxyState>) -> Result<String, String> {
 #[tauri::command]
 fn open_browser(url: String) { std::process::Command::new("xdg-open").arg(url).spawn().ok(); }
 
+#[cfg(not(target_os = "android"))]
 #[tauri::command]
 fn get_logs() -> Result<String, String> {
     let (log_path, _) = get_log_paths();
@@ -1436,6 +1437,7 @@ fn get_geosite_list() -> Vec<String> {
     vec!["google", "youtube", "telegram", "vk", "yandex", "mailru", "github", "netflix", "spotify", "instagram", "twitter", "facebook", "tiktok", "apple", "microsoft", "amazon", "discord", "reddit", "twitch", "ru", "cn", "us", "geolocation-!cn", "geolocation-!ru", "category-ads-all", "category-porn", "category-games", "private", "speedtest", "openai"].into_iter().map(String::from).collect() 
 }
 
+#[cfg(not(target_os = "android"))]
 #[tauri::command]
 fn clear_logs() -> Result<String, String> {
     let (err_log, acc_log) = get_log_paths();
@@ -1597,6 +1599,30 @@ async fn start_proxy(
         return Err(err);
     }
     Ok("OK".into())
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn get_logs(app: tauri::AppHandle) -> Result<String, String> {
+    app.karin_vpn()
+        .logs()
+        .map(|result| {
+            if result.content.trim().is_empty() {
+                "Ожидание событий VPN/Xray...".to_string()
+            } else {
+                result.content
+            }
+        })
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn clear_logs(app: tauri::AppHandle) -> Result<String, String> {
+    app.karin_vpn()
+        .clear_logs()
+        .map(|_| "Очищено".to_string())
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(target_os = "android")]

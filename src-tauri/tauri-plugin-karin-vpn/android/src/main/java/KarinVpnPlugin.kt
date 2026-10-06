@@ -177,6 +177,19 @@ class KarinVpnPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     @Command
+    fun logs(invoke: Invoke) {
+        invoke.resolve(JSObject().apply {
+            put("content", KarinVpnService.logsSnapshot())
+        })
+    }
+
+    @Command
+    fun clearLogs(invoke: Invoke) {
+        KarinVpnService.clearLogBuffer()
+        invoke.resolve(JSObject().apply { put("cleared", true) })
+    }
+
+    @Command
     fun status(invoke: Invoke) {
         invoke.resolve(statusObject())
     }
