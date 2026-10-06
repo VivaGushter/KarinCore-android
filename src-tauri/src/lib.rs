@@ -721,7 +721,10 @@ fn sanitize_wg_config(raw: &str) -> String {
 #[tauri::command]
 async fn fetch_subscription(url: String) -> Result<SubscriptionResult, String> {
     let client = reqwest::Client::builder()
-        .user_agent("v2rayNG/1.8.5")
+        .user_agent("KarinCore-Android/0.1")
+        .connect_timeout(std::time::Duration::from_secs(8))
+        .timeout(std::time::Duration::from_secs(20))
+        .redirect(reqwest::redirect::Policy::limited(5))
         .build()
         .map_err(|e| format!("Ошибка HTTP клиента: {}", e))?;
         
@@ -730,14 +733,39 @@ async fn fetch_subscription(url: String) -> Result<SubscriptionResult, String> {
     let mut attempts = 0;
 
     while attempts < 2 {
-        let response = client.get(&current_url).send().await.map_err(|e| format!("Ошибка сети: {}", e))?;
+        let response = client
+            .get(&current_url)
+            .send()
+            .await
+            .map_err(|e| {
+                if e.is_timeout() {
+                    "SUBSCRIPTION_TIMEOUT: сервер подписки не ответил за 20 секунд".to_string()
+                } else if e.is_connect() {
+                    format!("SUBSCRIPTION_CONNECT: не удалось подключиться к серверу подписки: {}", e)
+                } else {
+                    format!("SUBSCRIPTION_NETWORK: {}", e)
+                }
+            })?;
         let status = response.status();
-        text = response.text().await.map_err(|e| format!("Ошибка чтения ответа: {}", e))?;
+        text = response
+            .text()
+            .await
+            .map_err(|e| {
+                if e.is_timeout() {
+                    "SUBSCRIPTION_TIMEOUT: сервер слишком долго передавал подписку".to_string()
+                } else {
+                    format!("SUBSCRIPTION_READ: ошибка чтения ответа: {}", e)
+                }
+            })?;
 
         if !status.is_success() { 
             return Err(format!("Сервер вернул ошибку {}: {}", status.as_u16(), text.chars().take(80).collect::<String>())); 
         }
         
+        if text.len() > 8 * 1024 * 1024 {
+            return Err("SUBSCRIPTION_TOO_LARGE: ответ подписки превышает 8 МБ".into());
+        }
+
         let clean_check = text.trim();
         if clean_check.starts_with('{') || clean_check.starts_with('[') || clean_check.contains("\"outbounds\":") {
             if attempts == 0 {

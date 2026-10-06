@@ -585,8 +585,17 @@ async function saveNewLink() {
             renderLinks();
             linkInput.value = '';
             typeKarinMessage('karin_add_link');
-        } catch (error) { 
-            alert(`Error: ${error}`); 
+        } catch (error) {
+            const message = String(error);
+            if (message.includes('SUBSCRIPTION_TIMEOUT')) {
+                alert(t('err_subscription_timeout'));
+            } else if (message.includes('SUBSCRIPTION_CONNECT')) {
+                alert(`${t('err_subscription_connect')}\n\n${message}`);
+            } else if (message.includes('certificate') || message.includes('tls') || message.includes('TLS')) {
+                alert(`${t('err_subscription_tls')}\n\n${message}`);
+            } else {
+                alert(`${t('err_subscription_generic')}\n\n${message}`);
+            }
         } finally { 
             btnSave.innerText = originalText; 
             btnSave.disabled = false; 
