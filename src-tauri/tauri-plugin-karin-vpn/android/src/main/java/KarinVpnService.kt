@@ -101,7 +101,7 @@ class KarinVpnService : VpnService() {
                 refreshSystemVpnFlags()
                 if (alwaysOn) {
                     recordLog("WARN", "Ignoring stop request while Android Always-on VPN is enabled")
-                    updateNotification("Always-on VPN включён")
+                    updateNotification(getString(R.string.notification_always_on))
                 } else {
                     worker.execute {
                         clearPersistedConnection()
@@ -118,7 +118,7 @@ class KarinVpnService : VpnService() {
                 // A user-requested profile change must not leave an older profile
                 // behind for a future always-on restart if the new one fails.
                 clearPersistedConnection()
-                startInForeground("Подключение…")
+                startInForeground(getString(R.string.notification_connecting))
                 recordLog("INFO", "VPN start requested; appRouting=$appRoutingMode, selectedApps=${appPackages.size}")
                 starting = true
                 lastError = null
@@ -145,7 +145,7 @@ class KarinVpnService : VpnService() {
                     recordLog("WARN", "System started VPN service without a persisted connection")
                     stopSelf()
                 } else {
-                    startInForeground("Восстановление VPN…")
+                    startInForeground(getString(R.string.notification_restoring))
                     recordLog(
                         "INFO",
                         "System VPN start; alwaysOn=$alwaysOn, lockdown=$lockdown, appRouting=${persisted.appRoutingMode}"
@@ -247,7 +247,7 @@ class KarinVpnService : VpnService() {
             running = true
             lastError = null
             registerNetworkMonitor()
-            updateNotification("VPN подключён")
+            updateNotification(getString(R.string.notification_connected))
             recordLog("INFO", "VPN started, fd=${pfd.fd}, core=$coreVersion")
         }
     }
@@ -385,7 +385,7 @@ class KarinVpnService : VpnService() {
             val config = lastConfigJson ?: return
 
             reconnecting = true
-            updateNotification("Смена сети…")
+            updateNotification(getString(R.string.notification_network_change))
             var lastFailure: Throwable? = null
 
             try {
@@ -407,7 +407,7 @@ class KarinVpnService : VpnService() {
 
                         coreRunning = true
                         lastError = null
-                        updateNotification("VPN подключён")
+                        updateNotification(getString(R.string.notification_connected))
                         recordLog("INFO", "Xray reloaded after network handover on attempt $attempt")
                         return
                     } catch (t: Throwable) {
@@ -418,7 +418,7 @@ class KarinVpnService : VpnService() {
 
                 coreRunning = false
                 lastError = "Network handover failed: ${lastFailure?.message ?: "unknown error"}"
-                updateNotification("VPN: ошибка переподключения")
+                updateNotification(getString(R.string.notification_reconnect_error))
             } finally {
                 reconnecting = false
             }
@@ -483,7 +483,7 @@ class KarinVpnService : VpnService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val nm = getSystemService(NotificationManager::class.java)
             nm.createNotificationChannel(
-                NotificationChannel(channelId, "KarinCore VPN", NotificationManager.IMPORTANCE_LOW)
+                NotificationChannel(channelId, getString(R.string.notification_channel_name), NotificationManager.IMPORTANCE_LOW)
             )
         }
 
@@ -515,7 +515,7 @@ class KarinVpnService : VpnService() {
         }
 
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setSmallIcon(R.drawable.ic_stat_karincore)
             .setContentTitle("KarinCore")
             .setContentText(text)
             .setOngoing(true)
@@ -534,7 +534,7 @@ class KarinVpnService : VpnService() {
             )
             builder.addAction(
                 android.R.drawable.ic_menu_manage,
-                "VPN settings",
+                getString(R.string.notification_vpn_settings),
                 settingsPendingIntent
             )
         } else {
@@ -549,7 +549,7 @@ class KarinVpnService : VpnService() {
             )
             builder.addAction(
                 android.R.drawable.ic_menu_close_clear_cancel,
-                "Disconnect",
+                getString(R.string.notification_disconnect),
                 stopPendingIntent
             )
         }
