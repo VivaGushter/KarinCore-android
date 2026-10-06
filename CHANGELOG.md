@@ -2,6 +2,28 @@
 
 All notable Android-port changes are tracked here.
 
+## [0.1.0-alpha.20] - 2026-10-06
+
+Refreshable subscription groups.
+
+### Added
+- Subscription groups now retain their source URL in app-private local storage.
+- Subscription groups expose a refresh action directly in the profile drawer.
+- Refresh uses the same native Android subscription transport and 25 second UI watchdog as the initial import.
+- Existing profiles are matched by URL so their IDs and pin state survive refreshes.
+- New subscription profiles are added and profiles removed by the server disappear from the group.
+- Imported routing and DNS settings are merged again when a subscription refresh supplies them.
+
+### Behavior
+- Existing groups created by older versions continue to work; they simply do not show Refresh until re-added from a subscription URL.
+- An already active VPN connection is not force-disconnected if its profile disappears during a subscription refresh.
+- A removed inactive selected profile is cleared from the frontend selection state.
+
+### Verified
+- Subscription-refresh feature commit completes the full arm64 debug APK build in GitHub Actions.
+- Release publication is handled by the automatic Android release workflow.
+
+
 ## [0.1.0-alpha.19] - 2026-10-06
 
 Major Android APK size reduction.
