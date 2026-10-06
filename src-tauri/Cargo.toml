@@ -29,3 +29,12 @@ reqwest = { version = "0.13.3", default-features = false, features = ["json", "r
 [target.'cfg(not(target_os = "android"))'.dependencies]
 reqwest = { version = "0.13.3", default-features = false, features = ["json", "native-tls", "charset", "http2", "system-proxy"] }
 rfd = "0.17.2"
+
+
+# Android alpha builds use the Cargo dev profile so they remain debug-installable,
+# but native DWARF/symbol tables make the APK unnecessarily huge. Runtime
+# diagnostics are provided by KarinCore's own logs, so native symbols are not
+# shipped in test APKs.
+[profile.dev]
+debug = 0
+strip = "symbols"
