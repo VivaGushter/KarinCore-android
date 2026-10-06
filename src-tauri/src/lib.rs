@@ -715,6 +715,216 @@ fn sanitize_wg_config(raw: &str) -> String {
         .join("\n")
 }
 
+#[cfg(target_os = "android")]
+#[derive(Default)]
+struct AndroidWireGuardPeer {
+    public_key: String,
+    pre_shared_key: String,
+    endpoint: String,
+    keep_alive: u32,
+    allowed_ips: Vec<String>,
+}
+
+#[cfg(target_os = "android")]
+fn decode_wireguard_payload(payload: &str) -> Result<String, String> {
+    let normalized = payload.trim().replace(' ', "+");
+    let decoded = general_purpose::STANDARD
+        .decode(&normalized)
+        .or_else(|_| general_purpose::STANDARD_NO_PAD.decode(&normalized))
+        .or_else(|_| general_purpose::URL_SAFE.decode(&normalized))
+        .or_else(|_| general_purpose::URL_SAFE_NO_PAD.decode(&normalized))
+        .map_err(|e| format!("Ошибка Base64 WireGuard payload: {}", e))?;
+
+    String::from_utf8(decoded).map_err(|e| format!("Ошибка UTF-8 WireGuard payload: {}", e))
+}
+
+#[cfg(target_os = "android")]
+fn build_android_wireguard_outbound(wg_link: &str) -> Result<Value, String> {
+    let parsed_url = Url::parse(wg_link).map_err(|e| format!("Некорректная WireGuard ссылка: {}", e))?;
+    let payload = parsed_url
+        .query_pairs()
+        .find_map(|(key, value)| (key == "payload").then(|| value.into_owned()))
+        .ok_or_else(|| "В WireGuard ссылке отсутствует payload конфигурации".to_string())?;
+
+    let raw_config = decode_wireguard_payload(&payload)?;
+    let sanitized = sanitize_wg_config(&raw_config);
+
+    let mut section = "";
+    let mut secret_key = String::new();
+    let mut addresses: Vec<String> = Vec::new();
+    let mut remote_dns: Vec<String> = Vec::new();
+    let mut mtu: i32 = 1420;
+    let mut reserved: Vec<u8> = Vec::new();
+    let mut peers: Vec<AndroidWireGuardPeer> = Vec::new();
+    let mut current_peer: Option<AndroidWireGuardPeer> = None;
+
+    for raw_line in sanitized.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('#') || line.starts_with(';') {
+            continue;
+        }
+
+        if line.starts_with('[') && line.ends_with(']') {
+            if let Some(peer) = current_peer.take() {
+                peers.push(peer);
+            }
+
+            section = match line[1..line.len() - 1].trim().to_ascii_lowercase().as_str() {
+                "interface" => "interface",
+                "peer" => {
+                    current_peer = Some(AndroidWireGuardPeer::default());
+                    "peer"
+                }
+                _ => "",
+            };
+            continue;
+        }
+
+        let Some((raw_key, raw_value)) = line.split_once('=') else {
+            continue;
+        };
+        let key = raw_key.trim().to_ascii_lowercase();
+        let value = raw_value.trim();
+
+        match section {
+            "interface" => match key.as_str() {
+                "privatekey" => secret_key = value.to_string(),
+                "address" => {
+                    addresses.extend(
+                        value
+                            .split(',')
+                            .map(str::trim)
+                            .filter(|item| !item.is_empty())
+                            .map(|item| item.split('/').next().unwrap_or(item).trim().to_string()),
+                    );
+                }
+                "dns" => {
+                    remote_dns.extend(
+                        value
+                            .split(',')
+                            .map(str::trim)
+                            .filter(|item| item.parse::<std::net::IpAddr>().is_ok())
+                            .map(ToString::to_string),
+                    );
+                }
+                "mtu" => {
+                    if let Ok(parsed) = value.parse::<i32>() {
+                        mtu = parsed.clamp(576, 9000);
+                    }
+                }
+                "reserved" => {
+                    let bytes = value
+                        .split(',')
+                        .filter_map(|part| part.trim().parse::<u8>().ok())
+                        .collect::<Vec<_>>();
+                    if bytes.len() == 3 {
+                        reserved = bytes;
+                    }
+                }
+                _ => {}
+            },
+            "peer" => {
+                let Some(peer) = current_peer.as_mut() else { continue };
+                match key.as_str() {
+                    "publickey" => peer.public_key = value.to_string(),
+                    "presharedkey" => peer.pre_shared_key = value.to_string(),
+                    "endpoint" => peer.endpoint = value.to_string(),
+                    "persistentkeepalive" => {
+                        peer.keep_alive = value.parse::<u32>().unwrap_or(0);
+                    }
+                    "allowedips" => {
+                        peer.allowed_ips = value
+                            .split(',')
+                            .map(str::trim)
+                            .filter(|item| !item.is_empty())
+                            .map(ToString::to_string)
+                            .collect();
+                    }
+                    "reserved" => {
+                        let bytes = value
+                            .split(',')
+                            .filter_map(|part| part.trim().parse::<u8>().ok())
+                            .collect::<Vec<_>>();
+                        if bytes.len() == 3 {
+                            reserved = bytes;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if let Some(peer) = current_peer.take() {
+        peers.push(peer);
+    }
+
+    if secret_key.is_empty() {
+        return Err("WireGuard config: отсутствует Interface.PrivateKey".into());
+    }
+    if addresses.is_empty() {
+        return Err("WireGuard config: отсутствует Interface.Address".into());
+    }
+    if peers.is_empty() {
+        return Err("WireGuard config: отсутствует Peer".into());
+    }
+
+    let peer_values = peers
+        .into_iter()
+        .map(|peer| {
+            if peer.public_key.is_empty() {
+                return Err("WireGuard config: отсутствует Peer.PublicKey".to_string());
+            }
+            if peer.endpoint.is_empty() {
+                return Err("WireGuard config: отсутствует Peer.Endpoint".to_string());
+            }
+
+            let allowed_ips = if peer.allowed_ips.is_empty() {
+                vec!["0.0.0.0/0".to_string(), "::/0".to_string()]
+            } else {
+                peer.allowed_ips
+            };
+
+            let mut peer_json = json!({
+                "publicKey": peer.public_key,
+                "endpoint": peer.endpoint,
+                "allowedIPs": allowed_ips,
+                "keepAlive": peer.keep_alive
+            });
+
+            if !peer.pre_shared_key.is_empty() {
+                peer_json["preSharedKey"] = json!(peer.pre_shared_key);
+            }
+
+            Ok(peer_json)
+        })
+        .collect::<Result<Vec<Value>, String>>()?;
+
+    if remote_dns.is_empty() {
+        remote_dns = vec!["1.1.1.1".into(), "1.0.0.1".into()];
+    }
+
+    let mut settings = json!({
+        "secretKey": secret_key,
+        "address": addresses,
+        "peers": peer_values,
+        "noKernelTun": true,
+        "mtu": mtu,
+        "remoteDNS": remote_dns
+    });
+
+    if reserved.len() == 3 {
+        settings["reserved"] = json!(reserved);
+    }
+
+    Ok(json!({
+        "tag": "proxy",
+        "protocol": "wireguard",
+        "settings": settings
+    }))
+}
+
 // **********************************
 // TAURI COMMANDS: PROXY & NETWORK MANAGEMENT
 // **********************************
@@ -1612,8 +1822,8 @@ async fn start_proxy(
     app_routing_mode: String,
     app_packages: Vec<String>,
 ) -> Result<String, String> {
-    if vless_link.starts_with("ovpn://") || vless_link.starts_with("wg://") {
-        return Err("OpenVPN/WireGuard chaining is not implemented on Android yet".into());
+    if vless_link.starts_with("ovpn://") {
+        return Err("OpenVPN chaining is not implemented on Android yet".into());
     }
 
     let prepared = app.karin_vpn().prepare().map_err(|e| e.to_string())?;
@@ -1626,7 +1836,12 @@ async fn start_proxy(
         *guard = Some(token.clone());
     }
 
-    let (proxy_outbound, _out_addr, _resolved_ips) = build_proxy_outbound(&vless_link).await?;
+    let proxy_outbound = if vless_link.starts_with("wg://") {
+        build_android_wireguard_outbound(&vless_link)?
+    } else {
+        let (outbound, _out_addr, _resolved_ips) = build_proxy_outbound(&vless_link).await?;
+        outbound
+    };
     let dns_config = build_dns_config(&dns_params, &routing_state);
     let dynamic_rules = build_xray_rules(routing_state, zone_priority);
 
@@ -1707,11 +1922,13 @@ async fn start_proxy(
         ]
     });
 
+    let android_tun_mtu = if vless_link.starts_with("wg://") { 1420 } else { 1500 };
+
     let status = app
         .karin_vpn()
         .start(StartRequest {
             config_json: config.to_string(),
-            mtu: 1500,
+            mtu: android_tun_mtu,
             app_routing_mode,
             app_packages,
         })
