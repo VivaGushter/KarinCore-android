@@ -7,6 +7,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use std::path::Path;
 use std::sync::Mutex;
+#[cfg(target_os = "android")]
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::State;
 #[cfg(not(target_os = "android"))]
@@ -279,10 +280,10 @@ fn generate_token() -> String {
 fn get_log_paths() -> (String, String) {
     #[cfg(not(target_os = "android"))]
     {
-        return (
+        (
             "/var/log/karin-proxy/error.log".to_string(),
             "/var/log/karin-proxy/access.log".to_string(),
-        );
+        )
     }
 
     #[cfg(target_os = "android")]
