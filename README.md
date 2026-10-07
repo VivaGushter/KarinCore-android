@@ -43,6 +43,7 @@ Version `0.1.0-alpha.21` is validated by a complete arm64 debug APK build in Git
 - Android reports Always-on/lockdown state in Settings and prevents misleading manual disconnect attempts while Always-on mode is active.
 - Subscription loading on Android uses a native Kotlin HTTP path instead of Rust reqwest, with bounded connect/read timeouts, redirect limits and explicit TLS/network errors.
 - V2RayTun subscription routing is supported: a Base64 profile from the HTTP or body `routing` header is validated, stored with its subscription group and automatically applied to that group's servers with its original rule order, `domainStrategy` and `domainMatcher`; subscription refreshes update the route as well.
+- Rust CI installs system dependencies without restarting GitHub runner services, preventing the checks from being interrupted after `apt` completes.
 - The frontend has an independent 25 second subscription watchdog, so the UI cannot remain stuck in Loading even if the native bridge fails to return.
 - Android uses Rustls for `reqwest`; the desktop path keeps the upstream native TLS setup.
 - Logs page includes a VPN self-test that checks native service state, Xray state, TUN presence, forced proxy-path HTTPS/DNS and external IP through the active proxy.
