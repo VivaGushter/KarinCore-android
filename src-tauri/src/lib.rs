@@ -1829,6 +1829,7 @@ fn parse_subscription_content_with_routing(
     })
 }
 
+#[cfg(test)]
 fn parse_subscription_content(text: &str) -> Result<SubscriptionResult, String> {
     parse_subscription_content_with_routing(text, None)
 }
