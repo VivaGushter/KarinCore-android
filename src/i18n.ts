@@ -156,7 +156,7 @@ export const translations: Record<string, Record<string, string>> = {
     update_available: "New version available!",
     about_legal_title: "Legal & Privacy",
     about_legal_copyright: "© 2026 detestern. Released under the <strong>MIT License</strong>.",
-    about_legal_privacy: "KarinCore operates exclusively locally. The application does not collect, store, or transmit your personal data, IP addresses, routing profiles, or encryption keys to third-party servers. Zero telemetry. Your network — your rules."
+    about_legal_privacy: "KarinCore has no developer-operated telemetry, analytics, advertising or profile-storage service. Connections still contact the proxy, subscription and DNS services you configure, plus documented update and network-diagnostic endpoints. Profiles and keys are not sent to those diagnostic services. See PRIVACY.md in the project repository."
   },
   ru: {
     menu_home: "Главная",
@@ -315,7 +315,7 @@ export const translations: Record<string, Record<string, string>> = {
     update_available: "Вышла новая версия приложения!",
     about_legal_title: "Права и Конфиденциальность",
     about_legal_copyright: "© 2026 detestern. Распространяется по <strong>лицензии MIT</strong>.",
-    about_legal_privacy: "KarinCore работает исключительно локально. Приложение не собирает, не хранит и не передает ваши личные данные, IP-адреса, профили маршрутизации или ключи шифрования на сторонние серверы. Нулевая телеметрия. Ваша сеть — ваши правила."
+    about_legal_privacy: "В KarinCore нет телеметрии разработчика, аналитики, рекламы или удалённого хранилища профилей. Для подключения используются настроенные прокси, подписки и DNS, а также описанные сервисы обновлений и сетевой диагностики. Профили и ключи этим диагностическим сервисам не отправляются. Подробности — в PRIVACY.md репозитория."
   },
   fr: {
     menu_home: "Accueil", menu_routing: "Routage", menu_logs: "Journaux", menu_settings: "Paramètres", menu_about: "À propos",
@@ -383,7 +383,7 @@ logs_export_diagnostics: "Exporter le diagnostic", logs_exporting: "Exportation.
     update_available: "Nouvelle version disponible !",
     about_legal_title: "Légal & Confidentialité",
     about_legal_copyright: "© 2026 detestern. Publié sous la <strong>licence MIT</strong>.",
-    about_legal_privacy: "KarinCore fonctionne exclusivement localement. L'application ne collecte, ne stocke ni ne transmet vos données personnelles, adresses IP, profils de routage ou clés de chiffrement à des serveurs tiers. Zéro télémétrie. Votre réseau — vos règles."
+    about_legal_privacy: "KarinCore n'utilise aucun service de télémétrie, d'analyse, de publicité ou de stockage de profils exploité par le développeur. Les connexions utilisent néanmoins les services proxy, d'abonnement et DNS configurés, ainsi que les points de terminaison documentés de mise à jour et de diagnostic réseau. Les profils et les clés ne sont pas envoyés à ces services de diagnostic. Consultez PRIVACY.md dans le dépôt."
   },
   zh: {
     menu_home: "首页", menu_routing: "路由设置", menu_logs: "日志", menu_settings: "设置", menu_about: "关于",
@@ -451,7 +451,7 @@ logs_export_diagnostics: "导出诊断", logs_exporting: "正在导出...", logs
     update_available: "发现新版本！",
     about_legal_title: "法律与隐私",
     about_legal_copyright: "© 2026 detestern。在 <strong>MIT 许可证</strong> 下发布。",
-    about_legal_privacy: "KarinCore 完全在本地运行。应用程序不会收集、存储或将您的个人数据、IP 地址、路由配置或加密密钥传输到第三方服务器。零遥测。您的网络 — 您的规则。"
+    about_legal_privacy: "KarinCore 不包含由开发者运营的遥测、分析、广告或远程配置存储服务。连接仍会访问您配置的代理、订阅和 DNS 服务，以及文档中说明的更新与网络诊断端点。配置和密钥不会发送给这些诊断服务。详情请参阅仓库中的 PRIVACY.md。"
   },
   tr: {
     menu_home: "Ana Sayfa",
@@ -607,6 +607,6 @@ logs_export_diagnostics: "导出诊断", logs_exporting: "正在导出...", logs
     update_available: "Yeni sürüm mevcut!",
     about_legal_title: "Yasal & Gizlilik",
     about_legal_copyright: "© 2026 detestern. <strong>MIT Lisansı</strong> altında yayınlanmıştır.",
-    about_legal_privacy: "KarinCore tamamen yerel olarak çalışır. Uygulama, kişisel verilerinizi, IP adreslerinizi, yönlendirme profillerinizi veya şifreleme anahtarlarınızı üçüncü taraf sunuculara toplamaz, saklamaz veya iletmez. Sıfır telemetri. Sizin ağınız — sizin kurallarınız."
+    about_legal_privacy: "KarinCore geliştirici tarafından işletilen telemetri, analiz, reklam veya uzak profil depolama hizmeti içermez. Bağlantılar yine de yapılandırdığınız proxy, abonelik ve DNS hizmetlerine ve belgelenmiş güncelleme ile ağ tanılama uç noktalarına erişir. Profiller ve anahtarlar bu tanılama hizmetlerine gönderilmez. Ayrıntılar için depodaki PRIVACY.md dosyasına bakın."
   }
 };

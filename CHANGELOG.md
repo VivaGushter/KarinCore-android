@@ -17,6 +17,12 @@ All notable Android-port changes are tracked here.
 - Serialized protected-state writes so rapid UI mutations cannot be committed out of order.
 - Added locked dependency metadata, frontend security tests, privileged-helper tests, dependency audits and least-privilege pinned CI actions.
 
+### Documentation
+- Added a bilingual privacy policy covering local storage, configured network services, diagnostics, permissions and data deletion.
+- Added compatibility, known-limitations and upgrade guides, including the debug-to-production signing transition.
+- Added a production release checklist for device validation, permanent signing, store preparation, versioning and artifact verification.
+- Corrected the in-app privacy statement so it accurately distinguishes zero developer-operated telemetry from documented third-party network requests.
+
 ## [0.1.0-alpha.21] - 2026-10-06
 
 Automated Rust parser and configuration regression coverage.

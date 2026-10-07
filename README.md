@@ -50,6 +50,15 @@ Version `0.1.0-alpha.21` is validated by a complete arm64 debug APK build in Git
 
 Not implemented yet on Android: OpenVPN chaining and additional real-device UI/runtime polish. Always-on/lockdown, IPv6 and OEM-specific behavior still require real-device validation.
 
+## Release documentation
+
+- [Privacy policy](PRIVACY.md)
+- [Compatibility and known limitations](docs/COMPATIBILITY.md)
+- [Upgrade and signing transition](docs/UPGRADING.md)
+- [Production release checklist](docs/RELEASE_CHECKLIST.md)
+
+The privacy description in the application and repository distinguishes zero developer-operated telemetry from the third-party network services used for subscriptions, DNS, update checks and connectivity diagnostics.
+
 ## Build prerequisites
 
 Install the normal Tauri Android prerequisites: Rust, Node.js, Android Studio, Android SDK/Platform Tools, Build Tools, NDK and Command-line Tools. Add the Android Rust targets:
