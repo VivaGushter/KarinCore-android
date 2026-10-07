@@ -4,6 +4,10 @@ All notable Android-port changes are tracked here.
 
 ## Unreleased
 
+## [0.1.0-alpha.22] - 2026-10-07
+
+Android mobile interface stabilization and release hardening.
+
 ### Security
 - Moved proxy profiles, subscription URLs and the selected profile from WebView storage into Android Keystore-backed AES-GCM storage, with a one-time legacy migration.
 - Added strict HTML escaping and a restrictive Tauri content-security policy for renderer-controlled content.
