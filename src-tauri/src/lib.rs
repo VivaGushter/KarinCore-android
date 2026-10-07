@@ -2542,16 +2542,19 @@ fn stop_proxy(_state: State<'_, ProxyState>) -> Result<String, String> {
 // TAURI COMMANDS: UTILITIES & NETWORK
 // **********************************
 fn build_probe_client(state: &State<'_, ProxyState>) -> Result<reqwest::Client, String> {
-    let proxy_url = {
-        let guard = state.auth_token.lock().unwrap();
-        if let Some(token) = guard.as_ref() {
-            format!("http://karin:{}@127.0.0.1:2082", token)
-        } else {
-            "http://127.0.0.1:2082".to_string()
-        }
+    let token = {
+        let guard = state
+            .auth_token
+            .lock()
+            .map_err(|_| "VPN proxy state is unavailable".to_string())?;
+        guard
+            .clone()
+            .ok_or_else(|| "VPN proxy is not ready".to_string())?
     };
 
-    let proxy = reqwest::Proxy::all(&proxy_url).map_err(|e| e.to_string())?;
+    let proxy = reqwest::Proxy::all("http://127.0.0.1:2082")
+        .map_err(|e| e.to_string())?
+        .basic_auth("karin", &token);
     reqwest::Client::builder()
         .proxy(proxy)
         .connect_timeout(std::time::Duration::from_secs(5))
@@ -2562,47 +2565,106 @@ fn build_probe_client(state: &State<'_, ProxyState>) -> Result<reqwest::Client, 
 
 async fn probe_proxy_text(state: &State<'_, ProxyState>, url: &str) -> Result<String, String> {
     let client = build_probe_client(state)?;
-    let response = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| format!("Ошибка сети: {}", e))?;
+    let mut last_error = String::new();
 
-    if !response.status().is_success() {
-        return Err(format!("HTTP {}", response.status()));
+    for attempt in 0..4 {
+        match client.get(url).send().await {
+            Ok(response) => {
+                if !response.status().is_success() {
+                    return Err(format!("HTTP {}", response.status()));
+                }
+
+                return response
+                    .text()
+                    .await
+                    .map(|text| text.trim().to_string())
+                    .map_err(|e| format!("Ошибка чтения ответа: {}", e));
+            }
+            Err(error) => {
+                let retryable = error.is_connect();
+                last_error = error.to_string();
+                if !retryable {
+                    return Err(format!("Ошибка сети: {last_error}"));
+                }
+            }
+        }
+
+        if attempt < 3 {
+            tokio::time::sleep(std::time::Duration::from_millis(250 * (attempt + 1))).await;
+        }
     }
 
-    response
-        .text()
-        .await
-        .map(|text| text.trim().to_string())
-        .map_err(|e| format!("Ошибка чтения ответа: {}", e))
+    Err(format!("Ошибка сети: {last_error}"))
+}
+
+fn validate_probe_ip(value: String) -> Result<String, String> {
+    value
+        .parse::<std::net::IpAddr>()
+        .map(|ip| ip.to_string())
+        .map_err(|_| "Сервис проверки вернул некорректный IP".to_string())
 }
 
 #[tauri::command]
 async fn get_vpn_ip(state: State<'_, ProxyState>) -> Result<String, String> {
-    probe_proxy_text(&state, "https://api.ipify.org").await
+    #[cfg(target_os = "android")]
+    let url = "http://api.ipify.org";
+    #[cfg(not(target_os = "android"))]
+    let url = "https://api.ipify.org";
+
+    validate_probe_ip(probe_proxy_text(&state, url).await?)
 }
 
 #[tauri::command]
 async fn get_vpn_ipv4(state: State<'_, ProxyState>) -> Result<String, String> {
-    probe_proxy_text(&state, "https://api4.ipify.org").await
+    #[cfg(target_os = "android")]
+    let url = "http://api4.ipify.org";
+    #[cfg(not(target_os = "android"))]
+    let url = "https://api4.ipify.org";
+
+    validate_probe_ip(probe_proxy_text(&state, url).await?)
 }
 
 #[tauri::command]
 async fn get_vpn_ipv6(state: State<'_, ProxyState>) -> Result<String, String> {
-    probe_proxy_text(&state, "https://api6.ipify.org").await
+    #[cfg(target_os = "android")]
+    let url = "http://api6.ipify.org";
+    #[cfg(not(target_os = "android"))]
+    let url = "https://api6.ipify.org";
+
+    validate_probe_ip(probe_proxy_text(&state, url).await?)
 }
 
 #[tauri::command]
 async fn check_ping(state: State<'_, ProxyState>) -> Result<String, String> {
     let client = build_probe_client(&state)?;
     let start = std::time::Instant::now();
-    let response = client
-        .get("https://cp.cloudflare.com/generate_204")
-        .send()
-        .await
-        .map_err(|e| format!("Ошибка сети: {}", e))?;
+    #[cfg(target_os = "android")]
+    let url = "http://cp.cloudflare.com/generate_204";
+    #[cfg(not(target_os = "android"))]
+    let url = "https://cp.cloudflare.com/generate_204";
+
+    let mut response = None;
+    let mut last_error = String::new();
+    for attempt in 0..4 {
+        match client.get(url).send().await {
+            Ok(result) => {
+                response = Some(result);
+                break;
+            }
+            Err(error) => {
+                let retryable = error.is_connect();
+                last_error = error.to_string();
+                if !retryable {
+                    return Err(format!("Ошибка сети: {last_error}"));
+                }
+            }
+        }
+
+        if attempt < 3 {
+            tokio::time::sleep(std::time::Duration::from_millis(250 * (attempt + 1))).await;
+        }
+    }
+    let response = response.ok_or_else(|| format!("Ошибка сети: {last_error}"))?;
 
     if !response.status().is_success() && response.status().as_u16() != 204 {
         return Err(format!("HTTP {}", response.status()));
@@ -3579,5 +3641,18 @@ mod tests {
         assert_eq!(result.links.len(), 1);
         assert!(!result.links[0].contains('<'));
         assert!(result.links[0].contains("%3Cimg%20src%3Dx%20onerror%3Dalert%281%29%3E"));
+    }
+
+    #[test]
+    fn vpn_ip_probe_accepts_only_ip_addresses() {
+        assert_eq!(
+            validate_probe_ip("203.0.113.10".to_string()).unwrap(),
+            "203.0.113.10"
+        );
+        assert_eq!(
+            validate_probe_ip("2001:db8::1".to_string()).unwrap(),
+            "2001:db8::1"
+        );
+        assert!(validate_probe_ip("<html>proxy error</html>".to_string()).is_err());
     }
 }

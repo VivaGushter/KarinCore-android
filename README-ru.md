@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="public/karincore-icon-main.png" alt="KarinCore" width="160"/>
+  <img src="src-tauri/icons/icon.png" alt="KarinCore" width="160"/>
   <h1>KarinCore Android</h1>
   <p>Android-порт KarinCore на Tauri 2, Rust, Android VpnService и Xray-core.</p>
   <p><strong>Текущая версия: 0.1.0-alpha.21</strong></p>

@@ -16,6 +16,7 @@ interface InstalledApp { label: string; packageName: string; system: boolean; }
 interface RuntimeInfo { platform: 'android' | 'desktop'; version: string; updateRepo: string; }
 const PROJECT_REPO = 'VivaGushter/KarinCore-android';
 const UPSTREAM_REPO = 'detestern/KarinCore';
+const KARIN_ICON_URL = new URL('../src-tauri/icons/icon.png', import.meta.url).href;
 interface VpnRuntimeStatus {
     running: boolean;
     starting: boolean;
@@ -75,6 +76,7 @@ let nativeVpnLockdown = false;
 let nativeStatusInterval: number | null = null;
 let nativeStatusPollInFlight = false;
 let lastNativeStatusSignature = '';
+let connectionMetricsRequest = 0;
 let currentTheme = localStorage.getItem('karin_theme') || 'dark';
 let currentLang = localStorage.getItem('karin_lang') || 'en';
 let activeLink: string | null = sessionStorage.getItem('karin_active_link') || null;
@@ -997,18 +999,52 @@ function updateStatusUI() {
             statusText.className = (nativeVpnStarting || nativeVpnReconnecting) ? "status-connecting" : "status-active";
         }
         if(btnDisconnect) btnDisconnect.style.display = "block";
+        const diagnosticsReady = nativeVpnCoreRunning || runtimeInfo.platform !== 'android';
         if(btnPing) {
-            btnPing.style.display = nativeVpnCoreRunning || runtimeInfo.platform !== 'android' ? "block" : "none";
+            btnPing.style.display = diagnosticsReady ? "block" : "none";
+            btnPing.disabled = false;
             btnPing.innerText = t('btn_ping');
         }
-        if(statusIpBox) statusIpBox.style.display = nativeVpnCoreRunning || runtimeInfo.platform !== 'android' ? "block" : "none"; 
-        if(statusIp) statusIp.innerText = "...";
-        invoke<string>('get_vpn_ip').then(ip => { if(statusIp) statusIp.innerText = ip; }).catch(() => { if(statusIp) statusIp.innerText = "Error"; });
+        if(statusIpBox) statusIpBox.style.display = diagnosticsReady ? "block" : "none";
+        if (diagnosticsReady) void refreshVpnIp();
     } else {
+        connectionMetricsRequest += 1;
         if(statusText) { statusText.innerText = t('status_inactive'); statusText.className = "status-inactive"; }
         if(btnDisconnect) btnDisconnect.style.display = "none"; 
-        if(btnPing) btnPing.style.display = "none"; 
+        if(btnPing) {
+            btnPing.style.display = "none";
+            btnPing.disabled = false;
+        }
         if(statusIpBox) statusIpBox.style.display = "none";
+    }
+}
+
+async function refreshVpnIp() {
+    if (!statusIp) return;
+
+    const request = ++connectionMetricsRequest;
+    statusIp.innerText = '...';
+    try {
+        const ip = await invoke<string>('get_vpn_ip');
+        if (request === connectionMetricsRequest) statusIp.innerText = ip;
+    } catch (error) {
+        console.error('Unable to read VPN IP:', error);
+        if (request === connectionMetricsRequest) statusIp.innerText = 'Error';
+    }
+}
+
+async function runPing() {
+    if (!btnPing || btnPing.disabled) return;
+
+    btnPing.disabled = true;
+    btnPing.innerText = '...';
+    try {
+        btnPing.innerText = await invoke<string>('check_ping');
+    } catch (error) {
+        console.error('VPN ping failed:', error);
+        btnPing.innerText = 'Error';
+    } finally {
+        btnPing.disabled = false;
     }
 }
 
@@ -1282,7 +1318,7 @@ function renderAboutPage() {
     if (infoPanel) {
         infoPanel.innerHTML = `
             <div style="display: flex; gap: 20px; align-items: center; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid var(--border-color); flex-shrink: 0;">
-                <img src="/karin-about.png" alt="KarinCore" style="width: 90px; height: 90px; border-radius: 16px; object-fit: cover; border: 2px solid var(--accent); box-shadow: 0 0 15px rgba(203, 166, 247, 0.15);">
+                <img src="${KARIN_ICON_URL}" alt="KarinCore" style="width: 90px; height: 90px; border-radius: 16px; object-fit: cover; border: 2px solid var(--accent); box-shadow: 0 0 15px rgba(203, 166, 247, 0.15);">
                 <div>
                     <h2 style="margin: 0; color: var(--accent); font-weight: 600; font-size: 26px; letter-spacing: 0.5px;">KarinCore</h2>
                     <div style="font-size: 13px; color: var(--success); margin-top: 4px; font-family: monospace;">KarinCore Android v${runtimeInfo.version}</div>
@@ -1969,6 +2005,9 @@ async function init() {
     });
     
     btnDisconnect?.addEventListener('click', disconnectProxy);
+    btnPing?.addEventListener('click', () => {
+        void runPing();
+    });
     document.getElementById('btn-manual-add')?.addEventListener('click', handleManualAdd);
     btnMenu?.addEventListener('click', () => toggleMenu());
     overlay?.addEventListener('click', () => toggleMenu(false));
@@ -2166,11 +2205,6 @@ document.addEventListener('click', async (e) => {
     
     if (!isMenuDot && !isDropdown && !isCustomSelect) { 
         document.querySelectorAll('.dropdown-menu').forEach(m => (m as HTMLElement).style.display = 'none'); 
-    }
-  
-    if (target.id === 'btn-ping' || target.closest('#btn-ping')) {
-      if(btnPing) btnPing.innerText = "...";
-      invoke<string>('check_ping').then(res => { if(btnPing) btnPing.innerText = res; }).catch(() => { if(btnPing) btnPing.innerText = "Error"; });
     }
   
     if (target.classList.contains('btn-add')) { 
