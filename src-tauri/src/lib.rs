@@ -3510,7 +3510,7 @@ mod tests {
                     { "type": "ip", "value": "10.0.0.0/8" }
                 ],
                 "proxy": [{ "type": "keyword", "value": "video" }],
-                "block": [{ "type": "domain", "value": "ads.example" }]
+                "block": [{ "type": "domain", "value": "domain:ads.example" }]
             }))
         );
         assert_eq!(
