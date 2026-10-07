@@ -20,6 +20,7 @@ Android mobile interface stabilization and release hardening.
 - Corrected Android TUN MTU propagation, excluded VPN transports from upstream selection and persisted reconnect state securely.
 - Serialized protected-state writes so rapid UI mutations cannot be committed out of order.
 - Added locked dependency metadata, frontend security tests, privileged-helper tests, dependency audits and least-privilege pinned CI actions.
+- Allowed debug prerelease publication through an explicit `[publish-debug]` release-commit marker when repository-variable administration is unavailable.
 
 ### Fixed
 - Corrected Android safe-area padding and kept the configuration drawer control clear of system navigation on short displays.

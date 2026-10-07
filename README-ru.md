@@ -98,6 +98,8 @@ npm run version:check
 
 Скрипт проверяет совпадение версии в `VERSION`, `package.json`, `src-tauri/Cargo.toml` и `src-tauri/tauri.conf.json`. Android `versionCode` должен только увеличиваться.
 
+Для публикации debug prerelease требуется явное разрешение в настройках репозитория или маркер `[publish-debug]` в коммите `release:`. Обычный коммит с новой версией не публикует APK с тестовой подписью автоматически.
+
 История изменений: [CHANGELOG.md](CHANGELOG.md).
 
 ## Лицензия и исходный проект

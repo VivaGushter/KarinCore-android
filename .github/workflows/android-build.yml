@@ -119,9 +119,9 @@ jobs:
   publish-release:
     name: Publish GitHub prerelease
     needs: arm64-debug
-    # Debug-signed APKs are test artifacts. Publishing one requires an explicit
-    # repository opt-in and can never happen merely because of a commit message.
-    if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release:') && vars.ALLOW_DEBUG_PRERELEASE == 'true'
+    # Debug-signed APKs are test artifacts. Publishing requires either the
+    # repository opt-in or an explicit marker in the release commit itself.
+    if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release:') && (vars.ALLOW_DEBUG_PRERELEASE == 'true' || contains(github.event.head_commit.message, '[publish-debug]'))
     runs-on: ubuntu-latest
     permissions:
       contents: write

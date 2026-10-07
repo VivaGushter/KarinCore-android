@@ -96,6 +96,8 @@ npm run version:check
 
 before committing a release. The same version must exist in `VERSION`, `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`. Android `versionCode` increases monotonically for distributable builds.
 
+Debug prerelease publication requires an explicit repository opt-in or the `[publish-debug]` marker in a `release:` commit. This prevents an ordinary version commit from publishing a test-signed APK accidentally.
+
 See [CHANGELOG.md](CHANGELOG.md).
 
 ## Architecture
