@@ -24,6 +24,8 @@ import go.Seq
 import libv2ray.CoreCallbackHandler
 import libv2ray.CoreController
 import libv2ray.Libv2ray
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.concurrent.Executors
 
 class KarinVpnService : VpnService() {
@@ -59,28 +61,34 @@ class KarinVpnService : VpnService() {
         appRoutingMode: String,
         appPackages: List<String>
     ) {
-        getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-            .edit()
-            .putString(PREF_CONFIG_JSON, configJson)
-            .putInt(PREF_MTU, mtu)
-            .putString(PREF_APP_ROUTING_MODE, appRoutingMode)
-            .putStringSet(PREF_APP_PACKAGES, appPackages.toSet())
-            .apply()
+        val payload = JSONObject()
+            .put("configJson", configJson)
+            .put("mtu", mtu)
+            .put("appRoutingMode", appRoutingMode)
+            .put("appPackages", JSONArray(appPackages))
+            .toString()
+        SecureStorage(this).put(SecureStorage.VPN_CONNECTION_KEY, payload)
     }
 
     private fun loadPersistedConnection(): PersistedConnection? {
-        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        val config = prefs.getString(PREF_CONFIG_JSON, null)?.takeIf { it.isNotBlank() } ?: return null
-        return PersistedConnection(
-            configJson = config,
-            mtu = prefs.getInt(PREF_MTU, 1500).coerceIn(1280, 9000),
-            appRoutingMode = prefs.getString(PREF_APP_ROUTING_MODE, "all") ?: "all",
-            appPackages = prefs.getStringSet(PREF_APP_PACKAGES, emptySet())?.toList().orEmpty()
-        )
+        val payload = SecureStorage(this).get(SecureStorage.VPN_CONNECTION_KEY) ?: return null
+        return try {
+            val json = JSONObject(payload)
+            val packages = json.optJSONArray("appPackages") ?: JSONArray()
+            PersistedConnection(
+                configJson = json.getString("configJson").takeIf { it.isNotBlank() } ?: return null,
+                mtu = json.optInt("mtu", 1500).coerceIn(1280, 9000),
+                appRoutingMode = json.optString("appRoutingMode", "all"),
+                appPackages = (0 until packages.length()).mapNotNull { packages.optString(it).takeIf(String::isNotBlank) }
+            )
+        } catch (_: Exception) {
+            SecureStorage(this).remove(SecureStorage.VPN_CONNECTION_KEY)
+            null
+        }
     }
 
     private fun clearPersistedConnection() {
-        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit().clear().apply()
+        SecureStorage(this).remove(SecureStorage.VPN_CONNECTION_KEY)
     }
 
     private fun refreshSystemVpnFlags() {
@@ -304,10 +312,13 @@ class KarinVpnService : VpnService() {
         val request = NetworkRequest.Builder()
             .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
             .build()
 
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
+                val capabilities = connectivity.getNetworkCapabilities(network)
+                if (!isUsableUnderlyingNetwork(capabilities)) return
                 val previous = upstreamNetwork
                 val recoveredAfterLoss = upstreamWasLost
                 upstreamNetwork = network
@@ -332,8 +343,12 @@ class KarinVpnService : VpnService() {
                 network: Network,
                 networkCapabilities: NetworkCapabilities
             ) {
-                if (network == upstreamNetwork) {
+                if (network == upstreamNetwork && isUsableUnderlyingNetwork(networkCapabilities)) {
                     setUnderlyingNetworks(arrayOf(network))
+                } else if (network == upstreamNetwork) {
+                    upstreamNetwork = null
+                    upstreamWasLost = true
+                    setUnderlyingNetworks(null)
                 }
             }
 
@@ -354,6 +369,13 @@ class KarinVpnService : VpnService() {
         } catch (t: Throwable) {
             recordLog("WARN", "Unable to register underlying network monitor: ${t.message ?: t.javaClass.simpleName}", t)
         }
+    }
+
+    private fun isUsableUnderlyingNetwork(capabilities: NetworkCapabilities?): Boolean {
+        return capabilities != null &&
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN) &&
+            !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
     }
 
     private fun unregisterNetworkMonitor() {
@@ -578,11 +600,6 @@ class KarinVpnService : VpnService() {
 
     companion object {
         private const val TAG = "KarinVpnService"
-        private const val PREFS_NAME = "karincore_vpn_state"
-        private const val PREF_CONFIG_JSON = "config_json"
-        private const val PREF_MTU = "mtu"
-        private const val PREF_APP_ROUTING_MODE = "app_routing_mode"
-        private const val PREF_APP_PACKAGES = "app_packages"
         @Volatile private var instance: KarinVpnService? = null
         private const val MAX_LOG_LINES = 500
         private val logLock = Any()

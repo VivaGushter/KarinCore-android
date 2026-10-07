@@ -1,6 +1,12 @@
 #!/bin/sh
 set -e
 
+getent group karincore >/dev/null 2>&1 || groupadd -r karincore
+target_user="${SUDO_USER:-${DOAS_USER:-}}"
+if [ -n "$target_user" ] && [ "$target_user" != "root" ]; then
+    gpasswd -a "$target_user" karincore >/dev/null 2>&1 || true
+fi
+
 # Файлы /etc/sudoers.d/zz-karincore, /etc/systemd/system/karin-proxy-daemon.service
 # и /etc/karin-proxy/route.sh уже размещены dpkg на этапе распаковки пакета
 # (см. bundle.linux.deb.files в tauri.conf.json). Здесь только права/владелец
@@ -24,6 +30,14 @@ chown root:root /etc/systemd/system/karin-proxy-daemon.service
 
 chmod 0755 /etc/karin-proxy/route.sh
 chown root:root /etc/karin-proxy/route.sh
+
+chmod 0755 /usr/libexec/karincore-helper
+chown root:root /usr/libexec/karincore-helper
+
+install -d -m 0750 -o root -g karincore /var/log/karin-proxy
+touch /var/log/karin-proxy/error.log /var/log/karin-proxy/access.log
+chown root:karincore /var/log/karin-proxy/error.log /var/log/karin-proxy/access.log
+chmod 0660 /var/log/karin-proxy/error.log /var/log/karin-proxy/access.log
 
 if command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload || true

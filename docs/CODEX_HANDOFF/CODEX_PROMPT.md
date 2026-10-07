@@ -24,14 +24,14 @@
 
 Baseline на момент handoff:
 
-- version `0.1.0-alpha.20`
-- versionCode `20`
-- HEAD `755d0f10ce506f5a18fcc684d0dc275b0c026772`
-- release `v0.1.0-alpha.20`
+- version `0.1.0-alpha.21`
+- versionCode `21`
+- HEAD `67c7709958768f05cb6d91fe4502745aa201c5fc`
+- release `v0.1.0-alpha.21`
 - arm64 debug APK около 73.7 MB
 - Repository checks green
 - Android build green
-- next normal version: `0.1.0-alpha.21`, versionCode 21
+- next normal version: `0.1.0-alpha.22`, versionCode 22
 
 ## 2. Архитектурные правила
 

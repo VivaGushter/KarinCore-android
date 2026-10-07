@@ -8,16 +8,16 @@ KarinCore Android является Android-портом проекта `detester
 
 - GitHub: `VivaGushter/KarinCore-android`
 - Основная ветка: `main`
-- Текущая версия: `0.1.0-alpha.20`
-- Android `versionCode`: `20`
-- Release code baseline: `755d0f10ce506f5a18fcc684d0dc275b0c026772`
+- Текущая версия: `0.1.0-alpha.21`
+- Android `versionCode`: `21`
+- Release code baseline: `67c7709958768f05cb6d91fe4502745aa201c5fc`
 - База upstream: KarinCore 1.3.7
 - Upstream commit: `b7fea2e2ff5e1492fd863381985fdebb4da7a57e`
 - Package ID: `com.vivagushter.karincore`
 - Android minSdk: 24
 - Основной выпускаемый ABI на текущем этапе: `arm64-v8a`
 
-Версия `v0.1.0-alpha.20` опубликована как GitHub prerelease. Полный Android CI и Repository checks проходят успешно. Release APK имеет размер примерно 73.7 MB после отключения native debug info и strip Rust symbols.
+Версия `v0.1.0-alpha.21` опубликована как GitHub prerelease. Полный Android CI и Repository checks проходят успешно. Release APK имеет размер примерно 73.7 MB после отключения native debug info и strip Rust symbols.
 
 ## 2. Технологический стек
 
@@ -434,15 +434,15 @@ Android port имеет независимую SemVer ветку.
 
 Текущая версия:
 
-`0.1.0-alpha.20`
+`0.1.0-alpha.21`
 
 Следующий обычный prerelease:
 
-`0.1.0-alpha.21`
+`0.1.0-alpha.22`
 
 Следующий versionCode:
 
-`21`
+`22`
 
 Release bump должен синхронно менять:
 

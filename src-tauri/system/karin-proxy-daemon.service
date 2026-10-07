@@ -8,7 +8,7 @@ StartLimitBurst=5
 Type=simple
 User=root
 LimitNOFILE=51200
-ExecStart=/usr/local/bin/xray run -c /etc/karin-proxy/config.json
+ExecStart=/usr/bin/xray run -c /etc/karin-proxy/config.json
 
 # Магия автоматизации здесь:
 ExecStartPost=/etc/karin-proxy/route.sh up
@@ -16,6 +16,17 @@ ExecStopPost=/etc/karin-proxy/route.sh down
 
 Restart=on-failure
 RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/log/karin-proxy /etc/resolv.conf /etc/karin-proxy
+ProtectKernelModules=true
+ProtectKernelTunables=false
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
 
 # Юнит НЕ должен быть в автозагрузке (WantedBy используется только если
 # пользователь сам явно вызовет systemctl enable — по умолчанию GUI

@@ -11,6 +11,9 @@
   },
   "app": {
     "withGlobalTauri": false,
+    "security": {
+      "csp": "default-src 'self' customprotocol: asset:; connect-src 'self' ipc: http://ipc.localhost https://raw.githubusercontent.com; img-src 'self' asset: http://asset.localhost data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+    },
     "windows": [
       {
         "title": "KarinCore",
@@ -37,12 +40,14 @@
           "wireguard-tools",
           "libwebkit2gtk-4.1-0",
           "libgtk-3-0",
+          "python3",
           "unzip"
         ],
         "files": {
           "/etc/sudoers.d/zz-karincore": "system/karincore-sudoers",
           "/etc/systemd/system/karin-proxy-daemon.service": "system/karin-proxy-daemon.service",
           "/etc/karin-proxy/route.sh": "system/route.sh",
+          "/usr/libexec/karincore-helper": "system/karincore-helper",
           "/usr/share/pixmaps/karin-proxy.png": "icons/icon.png"
         }
       }

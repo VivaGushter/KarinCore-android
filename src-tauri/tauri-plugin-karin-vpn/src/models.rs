@@ -18,8 +18,12 @@ pub struct StartRequest {
     pub app_packages: Vec<String>,
 }
 
-fn default_mtu() -> u16 { 1500 }
-fn default_app_routing_mode() -> String { "all".to_string() }
+fn default_mtu() -> u16 {
+    1500
+}
+fn default_app_routing_mode() -> String {
+    "all".to_string()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -59,7 +63,6 @@ pub struct VpnStatus {
     pub last_error: Option<String>,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LogsResult {
@@ -72,7 +75,6 @@ pub struct ClearLogsResult {
     pub cleared: bool,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SaveDocumentRequest {
@@ -82,7 +84,9 @@ pub struct SaveDocumentRequest {
     pub mime_type: String,
 }
 
-fn default_document_mime() -> String { "application/json".to_string() }
+fn default_document_mime() -> String {
+    "application/json".to_string()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -91,13 +95,11 @@ pub struct SaveDocumentResult {
     pub uri: Option<String>,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OpenSettingsResult {
     pub opened: bool,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -109,8 +111,12 @@ pub struct FetchTextRequest {
     pub max_bytes: u64,
 }
 
-fn default_fetch_timeout_ms() -> u64 { 20_000 }
-fn default_fetch_max_bytes() -> u64 { 8 * 1024 * 1024 }
+fn default_fetch_timeout_ms() -> u64 {
+    20_000
+}
+fn default_fetch_max_bytes() -> u64 {
+    8 * 1024 * 1024
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -120,6 +126,23 @@ pub struct FetchTextResult {
     pub content: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SecureStateRequest {
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SecureStateResult {
+    pub content: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SecureStateSaveResult {
+    pub saved: bool,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

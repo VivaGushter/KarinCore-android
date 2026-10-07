@@ -1,19 +1,23 @@
 // **********************************
 // IMPORTS
 // **********************************
-use tauri::{State, RunEvent};
-use url::Url;
-use std::path::Path;
-use tokio::fs;
-use base64::{Engine as _, engine::general_purpose};
+use base64::{engine::general_purpose, Engine as _};
+use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use serde::Serialize;
 use serde_json::{json, Value};
+use std::path::Path;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tauri::State;
+#[cfg(not(target_os = "android"))]
+use tauri::{Manager, RunEvent};
+use url::Url;
 
 use tauri_plugin_karin_vpn::InstalledApp;
 #[cfg(target_os = "android")]
 use tauri_plugin_karin_vpn::SaveDocumentRequest;
+#[cfg(target_os = "android")]
+use tauri_plugin_karin_vpn::SecureStateRequest;
 #[cfg(target_os = "android")]
 use tauri_plugin_karin_vpn::{KarinVpnExt, StartRequest};
 
@@ -24,46 +28,345 @@ struct ProxyState {
     auth_token: Mutex<Option<String>>,
 }
 
+const MAX_SECURE_STATE_BYTES: usize = 8 * 1024 * 1024;
+
+fn validate_secure_state(content: &str) -> Result<(), String> {
+    if content.len() > MAX_SECURE_STATE_BYTES {
+        return Err("SECURE_STATE_TOO_LARGE".into());
+    }
+    serde_json::from_str::<Value>(content)
+        .map(|_| ())
+        .map_err(|_| "SECURE_STATE_INVALID_JSON".into())
+}
+
+fn is_forbidden_subscription_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(ip) => {
+            let octets = ip.octets();
+            ip.is_private()
+                || ip.is_loopback()
+                || ip.is_link_local()
+                || ip.is_unspecified()
+                || ip.is_multicast()
+                || ip.is_broadcast()
+                || octets[0] == 0
+                || (octets[0] == 100 && (64..=127).contains(&octets[1]))
+        }
+        std::net::IpAddr::V6(ip) => {
+            ip.is_loopback()
+                || ip.is_unspecified()
+                || ip.is_multicast()
+                || (ip.segments()[0] & 0xfe00) == 0xfc00
+                || (ip.segments()[0] & 0xffc0) == 0xfe80
+        }
+    }
+}
+
+fn validate_subscription_url(input: &str) -> Result<Url, String> {
+    let url = Url::parse(input).map_err(|_| "SUBSCRIPTION_URL_INVALID".to_string())?;
+    if url.scheme() != "https" {
+        return Err("SUBSCRIPTION_HTTPS_REQUIRED".into());
+    }
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err("SUBSCRIPTION_URL_CREDENTIALS_FORBIDDEN".into());
+    }
+    let host = url
+        .host_str()
+        .ok_or_else(|| "SUBSCRIPTION_HOST_MISSING".to_string())?;
+    if host.eq_ignore_ascii_case("localhost")
+        || host.ends_with(".localhost")
+        || host.ends_with(".local")
+    {
+        return Err("SUBSCRIPTION_PRIVATE_HOST_FORBIDDEN".into());
+    }
+    let literal_ip = match url.host() {
+        Some(url::Host::Ipv4(ip)) => Some(std::net::IpAddr::V4(ip)),
+        Some(url::Host::Ipv6(ip)) => Some(std::net::IpAddr::V6(ip)),
+        _ => None,
+    };
+    if literal_ip.is_some_and(is_forbidden_subscription_ip) {
+        return Err("SUBSCRIPTION_PRIVATE_HOST_FORBIDDEN".into());
+    }
+    Ok(url)
+}
+
+#[cfg(not(target_os = "android"))]
+async fn fetch_subscription_text(
+    url: &str,
+) -> Result<(reqwest::StatusCode, String, String), String> {
+    const MAX_BYTES: usize = 8 * 1024 * 1024;
+    let mut current = validate_subscription_url(url)?;
+
+    for redirects in 0..=5 {
+        let host = current
+            .host_str()
+            .ok_or_else(|| "SUBSCRIPTION_HOST_MISSING".to_string())?
+            .to_string();
+        let port = current.port_or_known_default().unwrap_or(443);
+        let is_domain = matches!(current.host(), Some(url::Host::Domain(_)));
+        let addresses: Vec<std::net::SocketAddr> = match current.host() {
+            Some(url::Host::Ipv4(ip)) => vec![std::net::SocketAddr::new(ip.into(), port)],
+            Some(url::Host::Ipv6(ip)) => vec![std::net::SocketAddr::new(ip.into(), port)],
+            _ => tokio::net::lookup_host((host.as_str(), port))
+                .await
+                .map_err(|e| format!("SUBSCRIPTION_DNS: {e}"))?
+                .collect(),
+        };
+        if addresses.is_empty()
+            || addresses
+                .iter()
+                .any(|address| is_forbidden_subscription_ip(address.ip()))
+        {
+            return Err("SUBSCRIPTION_PRIVATE_HOST_FORBIDDEN".into());
+        }
+
+        // Pin the validated resolution into this one-request client. This closes
+        // the DNS-rebinding gap between policy validation and the TCP connect.
+        let mut client_builder = reqwest::Client::builder()
+            .user_agent("KarinCore/0.1")
+            .connect_timeout(std::time::Duration::from_secs(8))
+            .timeout(std::time::Duration::from_secs(20))
+            .redirect(reqwest::redirect::Policy::none());
+        if is_domain {
+            client_builder = client_builder.resolve_to_addrs(&host, &addresses);
+        }
+        let client = client_builder
+            .build()
+            .map_err(|e| format!("Ошибка HTTP клиента: {e}"))?;
+
+        let mut response = client.get(current.clone()).send().await.map_err(|e| {
+            if e.is_timeout() {
+                "SUBSCRIPTION_TIMEOUT: сервер подписки не ответил за 20 секунд".to_string()
+            } else if e.is_connect() {
+                format!("SUBSCRIPTION_CONNECT: не удалось подключиться к серверу подписки: {e}")
+            } else {
+                format!("SUBSCRIPTION_NETWORK: {e}")
+            }
+        })?;
+
+        if response.status().is_redirection() {
+            if redirects == 5 {
+                return Err("SUBSCRIPTION_REDIRECT_LIMIT".into());
+            }
+            let location = response
+                .headers()
+                .get(reqwest::header::LOCATION)
+                .and_then(|value| value.to_str().ok())
+                .ok_or_else(|| "SUBSCRIPTION_REDIRECT_INVALID".to_string())?;
+            current = current
+                .join(location)
+                .map_err(|_| "SUBSCRIPTION_REDIRECT_INVALID".to_string())?;
+            validate_subscription_url(current.as_str())?;
+            continue;
+        }
+
+        if response
+            .content_length()
+            .is_some_and(|length| length > MAX_BYTES as u64)
+        {
+            return Err("SUBSCRIPTION_TOO_LARGE: ответ подписки превышает 8 МБ".into());
+        }
+        let status = response.status();
+        let mut body = Vec::new();
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|e| format!("SUBSCRIPTION_READ: {e}"))?
+        {
+            if body.len().saturating_add(chunk.len()) > MAX_BYTES {
+                return Err("SUBSCRIPTION_TOO_LARGE: ответ подписки превышает 8 МБ".into());
+            }
+            body.extend_from_slice(&chunk);
+        }
+        let text = String::from_utf8(body)
+            .map_err(|_| "SUBSCRIPTION_ENCODING: ответ подписки должен быть UTF-8".to_string())?;
+        return Ok((status, text, current.to_string()));
+    }
+
+    Err("SUBSCRIPTION_REDIRECT_LIMIT".into())
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn save_secure_state(app: tauri::AppHandle, content: String) -> Result<(), String> {
+    validate_secure_state(&content)?;
+    app.karin_vpn()
+        .save_secure_state(SecureStateRequest { content })
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn load_secure_state(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    app.karin_vpn()
+        .load_secure_state()
+        .map(|result| result.content)
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(not(target_os = "android"))]
+fn secure_state_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let directory = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&directory).map_err(|e| e.to_string())?;
+    std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700))
+        .map_err(|e| e.to_string())?;
+    Ok(directory.join("profile-state.json"))
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn save_secure_state(app: tauri::AppHandle, content: String) -> Result<(), String> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+
+    validate_secure_state(&content)?;
+    let path = secure_state_path(&app)?;
+    let mut nonce = [0_u8; 16];
+    getrandom::fill(&mut nonce).map_err(|e| e.to_string())?;
+    let suffix = nonce
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    let temporary = path.with_file_name(format!(".profile-state.{suffix}.tmp"));
+    let mut file = std::fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .mode(0o600)
+        .open(&temporary)
+        .map_err(|e| e.to_string())?;
+    let result = (|| {
+        file.write_all(content.as_bytes())
+            .map_err(|e| e.to_string())?;
+        file.sync_all().map_err(|e| e.to_string())?;
+        std::fs::rename(&temporary, path).map_err(|e| e.to_string())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(temporary);
+    }
+    result
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn load_secure_state(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let path = secure_state_path(&app)?;
+    match std::fs::read_to_string(path) {
+        Ok(content) => {
+            validate_secure_state(&content)?;
+            Ok(Some(content))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
 fn generate_token() -> String {
-    let time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-    format!("karin_token_{:x}", time)
+    let mut bytes = [0_u8; 32];
+    getrandom::fill(&mut bytes).expect("operating system CSPRNG unavailable");
+    let encoded = bytes
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    format!("karin_token_{encoded}")
 }
 
 // **********************************
 // CORE HELPER FUNCTIONS
 // **********************************
 fn get_log_paths() -> (String, String) {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    let log_dir = format!("{}/.local/share/karin-proxy", home);
-    
-    let _ = std::fs::create_dir_all(&log_dir);
-    
-    let err_log = format!("{}/error.log", log_dir);
-    let acc_log = format!("{}/access.log", log_dir);
-    
-    if !std::path::Path::new(&err_log).exists() {
-        let _ = std::fs::File::create(&err_log);
-    }
-    if !std::path::Path::new(&acc_log).exists() {
-        let _ = std::fs::File::create(&acc_log);
+    #[cfg(not(target_os = "android"))]
+    {
+        return (
+            "/var/log/karin-proxy/error.log".to_string(),
+            "/var/log/karin-proxy/access.log".to_string(),
+        );
     }
 
-    (err_log, acc_log)
+    #[cfg(target_os = "android")]
+    {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+        let log_dir = format!("{}/.local/share/karin-proxy", home);
+
+        let _ = std::fs::create_dir_all(&log_dir);
+
+        let err_log = format!("{}/error.log", log_dir);
+        let acc_log = format!("{}/access.log", log_dir);
+
+        if !std::path::Path::new(&err_log).exists() {
+            let _ = std::fs::File::create(&err_log);
+        }
+        if !std::path::Path::new(&acc_log).exists() {
+            let _ = std::fs::File::create(&acc_log);
+        }
+
+        (err_log, acc_log)
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+fn run_privileged_helper(operation: &str, payload: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    const ALLOWED: &[&str] = &[
+        "install-xray",
+        "install-openvpn",
+        "install-wireguard",
+        "install-resolv",
+        "resolver-enable",
+        "resolver-restore",
+        "install-geosite",
+        "install-geoip",
+        "killswitch-allow",
+        "killswitch-remove",
+        "route-delete",
+    ];
+    if !ALLOWED.contains(&operation) {
+        return Err("Unsupported privileged helper operation".into());
+    }
+
+    let mut child = std::process::Command::new("sudo")
+        .args(["-n", "/usr/libexec/karincore-helper", operation])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    child
+        .stdin
+        .take()
+        .ok_or_else(|| "Unable to open helper stdin".to_string())?
+        .write_all(payload)
+        .map_err(|e| e.to_string())?;
+    let output = child.wait_with_output().map_err(|e| e.to_string())?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    }
+}
+
+#[cfg(target_os = "android")]
+fn run_privileged_helper(_operation: &str, _payload: &[u8]) -> Result<(), String> {
+    Err("Privileged desktop helper is unavailable on Android".into())
 }
 
 fn build_xray_rules(state: Value, priority: Vec<String>) -> Value {
     let mut xray_rules = Vec::new();
-    
+
     if let Some(state_object) = state.as_object() {
         for tag in priority {
             if let Some(rules_list) = state_object.get(&tag).and_then(|v| v.as_array()) {
                 let mut domains = Vec::new();
                 let mut ips = Vec::new();
-                
+
                 for rule in rules_list {
                     let r_type = rule.get("type").and_then(|v| v.as_str()).unwrap_or("");
                     let r_val = rule.get("value").and_then(|v| v.as_str()).unwrap_or("");
-                    
+
                     match r_type {
                         "geosite" => domains.push(format!("geosite:{}", r_val)),
                         "domain" => domains.push(r_val.to_string()),
@@ -72,13 +375,13 @@ fn build_xray_rules(state: Value, priority: Vec<String>) -> Value {
                         _ => {}
                     }
                 }
-                
+
                 if !domains.is_empty() || !ips.is_empty() {
-                    xray_rules.push(json!({ 
-                        "type": "field", 
-                        "outboundTag": tag, 
-                        "domain": domains, 
-                        "ip": ips 
+                    xray_rules.push(json!({
+                        "type": "field",
+                        "outboundTag": tag,
+                        "domain": domains,
+                        "ip": ips
                     }));
                 }
             }
@@ -148,17 +451,27 @@ fn convert_routing_to_zones(routing: &Value, outbounds: &[Value]) -> Option<Valu
 
         if let Some(domains) = rule.get("domain").and_then(|v| v.as_array()) {
             for d in domains {
-                if let Some(s) = d.as_str() { zone_arr.push(routing_rule_from_domain(s)); found_any = true; }
+                if let Some(s) = d.as_str() {
+                    zone_arr.push(routing_rule_from_domain(s));
+                    found_any = true;
+                }
             }
         }
         if let Some(ips) = rule.get("ip").and_then(|v| v.as_array()) {
             for ip in ips {
-                if let Some(s) = ip.as_str() { zone_arr.push(json!({ "type": "ip", "value": s })); found_any = true; }
+                if let Some(s) = ip.as_str() {
+                    zone_arr.push(json!({ "type": "ip", "value": s }));
+                    found_any = true;
+                }
             }
         }
     }
 
-    if found_any { Some(Value::Object(zones)) } else { None }
+    if found_any {
+        Some(Value::Object(zones))
+    } else {
+        None
+    }
 }
 
 fn convert_dns_to_params(dns: &Value, outbounds: &[Value]) -> Option<Value> {
@@ -170,11 +483,20 @@ fn convert_dns_to_params(dns: &Value, outbounds: &[Value]) -> Option<Value> {
         let (address, tag) = if let Some(s) = server.as_str() {
             (s.to_string(), None)
         } else {
-            let addr = server.get("address").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let tag = server.get("outboundTag").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let addr = server
+                .get("address")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let tag = server
+                .get("outboundTag")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
             (addr, tag)
         };
-        if address.is_empty() { continue; }
+        if address.is_empty() {
+            continue;
+        }
 
         let entry = if address.starts_with("https://") || address.starts_with("http://") {
             json!({ "type": "doh", "url": address, "ip": "" })
@@ -182,24 +504,45 @@ fn convert_dns_to_params(dns: &Value, outbounds: &[Value]) -> Option<Value> {
             json!({ "type": "dou", "url": "", "ip": address })
         };
 
-        let zone_key = tag.as_deref().and_then(|t| classify_outbound_zone(outbounds, t));
+        let zone_key = tag
+            .as_deref()
+            .and_then(|t| classify_outbound_zone(outbounds, t));
         match zone_key {
-            Some("direct") => { if domestic.is_none() { domestic = Some(entry); } }
-            Some("proxy") => { if remote.is_none() { remote = Some(entry); } }
+            Some("direct") => {
+                if domestic.is_none() {
+                    domestic = Some(entry);
+                }
+            }
+            Some("proxy") => {
+                if remote.is_none() {
+                    remote = Some(entry);
+                }
+            }
             _ => {
-                if domestic.is_none() { domestic = Some(entry); }
-                else if remote.is_none() { remote = Some(entry); }
+                if domestic.is_none() {
+                    domestic = Some(entry);
+                } else if remote.is_none() {
+                    remote = Some(entry);
+                }
             }
         }
     }
 
-    if domestic.is_none() && remote.is_none() { None } else { Some(json!({ "domestic": domestic, "remote": remote })) }
+    if domestic.is_none() && remote.is_none() {
+        None
+    } else {
+        Some(json!({ "domestic": domestic, "remote": remote }))
+    }
 }
 
 // **********************************
 // DNS
 // **********************************
-fn build_dns_server_entry(entry: &Value, outbound_tag: &str, hosts: &mut serde_json::Map<String, Value>) -> Value {
+fn build_dns_server_entry(
+    entry: &Value,
+    outbound_tag: &str,
+    hosts: &mut serde_json::Map<String, Value>,
+) -> Value {
     let server_type = entry.get("type").and_then(|v| v.as_str()).unwrap_or("dou");
     let url = entry.get("url").and_then(|v| v.as_str()).unwrap_or("");
     let ip = entry.get("ip").and_then(|v| v.as_str()).unwrap_or("");
@@ -261,18 +604,24 @@ fn decode_base64_flexible(input: &str) -> Option<String> {
         general_purpose::STANDARD,
         general_purpose::STANDARD_NO_PAD,
         general_purpose::URL_SAFE,
-        general_purpose::URL_SAFE_NO_PAD
+        general_purpose::URL_SAFE_NO_PAD,
     ];
     for engine in &engines {
         if let Ok(bytes) = engine.decode(&cleaned) {
-            if let Ok(utf8) = String::from_utf8(bytes) { return Some(utf8); }
+            if let Ok(utf8) = String::from_utf8(bytes) {
+                return Some(utf8);
+            }
         }
     }
     let mut padded = cleaned.clone();
-    while padded.len() % 4 != 0 { padded.push('='); }
+    while !padded.len().is_multiple_of(4) {
+        padded.push('=');
+    }
     for engine in &engines {
         if let Ok(bytes) = engine.decode(&padded) {
-            if let Ok(utf8) = String::from_utf8(bytes) { return Some(utf8); }
+            if let Ok(utf8) = String::from_utf8(bytes) {
+                return Some(utf8);
+            }
         }
     }
     None
@@ -282,15 +631,22 @@ async fn resolve_server_ips(server: &str, port: u16) -> (String, Vec<String>) {
     let mut resolved_ips: Vec<String> = vec![];
     if let Ok(ip) = server.parse::<std::net::IpAddr>() {
         resolved_ips.push(ip.to_string());
-    } else if let Ok(mut addrs) = tokio::net::lookup_host(format!("{}:{}", server, port)).await {
-        while let Some(addr) = addrs.next() { resolved_ips.push(addr.ip().to_string()); }
+    } else if let Ok(addrs) = tokio::net::lookup_host(format!("{}:{}", server, port)).await {
+        for addr in addrs {
+            resolved_ips.push(addr.ip().to_string());
+        }
     }
-    if resolved_ips.is_empty() { resolved_ips.push(server.to_string()); }
+    if resolved_ips.is_empty() {
+        resolved_ips.push(server.to_string());
+    }
     let out_addr = resolved_ips.first().unwrap_or(&server.to_string()).clone();
     (out_addr, resolved_ips)
 }
 
-async fn build_vless_or_trojan_outbound(link: &str, protocol: &str) -> Result<(Value, String, Vec<String>), String> {
+async fn build_vless_or_trojan_outbound(
+    link: &str,
+    protocol: &str,
+) -> Result<(Value, String, Vec<String>), String> {
     let parsed_url = Url::parse(link).map_err(|e| e.to_string())?;
     let server = parsed_url.host_str().unwrap_or("").to_string();
     let port = parsed_url.port().unwrap_or(443);
@@ -298,23 +654,43 @@ async fn build_vless_or_trojan_outbound(link: &str, protocol: &str) -> Result<(V
 
     let (out_addr, resolved_ips) = resolve_server_ips(&server, port).await;
 
-    let mut pbk = String::new(); let mut sid = String::new(); let mut sni = String::new();
-    let mut fp = String::from("firefox"); let mut transport_type = String::from("tcp");
-    let mut path = String::from("/"); let mut host = String::new(); let mut mode = String::from("auto");
-    let mut spx = String::new(); let mut security = String::from("none"); let mut flow = String::new();
+    let mut pbk = String::new();
+    let mut sid = String::new();
+    let mut sni = String::new();
+    let mut fp = String::from("firefox");
+    let mut transport_type = String::from("tcp");
+    let mut path = String::from("/");
+    let mut host = String::new();
+    let mut mode = String::from("auto");
+    let mut spx = String::new();
+    let mut security = String::from("none");
+    let mut flow = String::new();
 
     for (k, v) in parsed_url.query_pairs() {
         match k.as_ref() {
-            "pbk" => pbk = v.to_string(), "sid" => sid = v.to_string(), "sni" => sni = v.to_string(),
-            "fp" => fp = v.to_string(), "type" => transport_type = v.to_string(), "path" => path = v.to_string(),
-            "host" => host = v.to_string(), "mode" => mode = v.to_string(), "spx" => spx = v.to_string(),
-            "security" => security = v.to_string(), "flow" => flow = v.to_string(),
+            "pbk" => pbk = v.to_string(),
+            "sid" => sid = v.to_string(),
+            "sni" => sni = v.to_string(),
+            "fp" => fp = v.to_string(),
+            "type" => transport_type = v.to_string(),
+            "path" => path = v.to_string(),
+            "host" => host = v.to_string(),
+            "mode" => mode = v.to_string(),
+            "spx" => spx = v.to_string(),
+            "security" => security = v.to_string(),
+            "flow" => flow = v.to_string(),
             _ => {}
         }
     }
-    if host.is_empty() { host = sni.clone(); }
+    if host.is_empty() {
+        host = sni.clone();
+    }
 
-    let final_network = if transport_type == "xhttp" || transport_type == "httpupgrade" { "xhttp" } else { "tcp" };
+    let final_network = if transport_type == "xhttp" || transport_type == "httpupgrade" {
+        "xhttp"
+    } else {
+        "tcp"
+    };
 
     let mut stream_settings = serde_json::Map::new();
     stream_settings.insert("network".to_string(), json!(final_network));
@@ -324,23 +700,35 @@ async fn build_vless_or_trojan_outbound(link: &str, protocol: &str) -> Result<(V
     if security == "reality" {
         stream_settings.insert("realitySettings".to_string(), json!({ "publicKey": pbk, "shortId": sid, "serverName": sni, "fingerprint": fp, "spiderX": spx }));
     } else if security == "tls" {
-        stream_settings.insert("tlsSettings".to_string(), json!({ "serverName": sni, "allowInsecure": false, "fingerprint": fp }));
+        stream_settings.insert(
+            "tlsSettings".to_string(),
+            json!({ "serverName": sni, "allowInsecure": false, "fingerprint": fp }),
+        );
     }
 
-    if final_network == "xhttp" { stream_settings.insert("xhttpSettings".to_string(), json!({ "path": path, "host": host, "mode": mode })); }
+    if final_network == "xhttp" {
+        stream_settings.insert(
+            "xhttpSettings".to_string(),
+            json!({ "path": path, "host": host, "mode": mode }),
+        );
+    }
 
     let settings = if protocol == "trojan" {
         let mut server_obj = serde_json::Map::new();
         server_obj.insert("address".to_string(), json!(out_addr.clone()));
         server_obj.insert("port".to_string(), json!(port));
         server_obj.insert("password".to_string(), json!(secret));
-        if !flow.is_empty() && (security == "reality" || security == "tls") { server_obj.insert("flow".to_string(), json!(flow)); }
+        if !flow.is_empty() && (security == "reality" || security == "tls") {
+            server_obj.insert("flow".to_string(), json!(flow));
+        }
         json!({ "servers": [Value::Object(server_obj)] })
     } else {
         let mut user_obj = serde_json::Map::new();
         user_obj.insert("id".to_string(), json!(secret));
         user_obj.insert("encryption".to_string(), json!("none"));
-        if !flow.is_empty() && (security == "reality" || security == "tls") { user_obj.insert("flow".to_string(), json!(flow)); }
+        if !flow.is_empty() && (security == "reality" || security == "tls") {
+            user_obj.insert("flow".to_string(), json!(flow));
+        }
         json!({ "vnext": [{ "address": out_addr.clone(), "port": port, "users": [Value::Object(user_obj)] }] })
     };
 
@@ -350,14 +738,25 @@ async fn build_vless_or_trojan_outbound(link: &str, protocol: &str) -> Result<(V
 
 async fn build_vmess_outbound(link: &str) -> Result<(Value, String, Vec<String>), String> {
     let b64_payload = link.trim_start_matches("vmess://");
-    let decoded = decode_base64_flexible(b64_payload).ok_or_else(|| "Не удалось декодировать VMess-ссылку".to_string())?;
-    let v: Value = serde_json::from_str(&decoded).map_err(|e| format!("Некорректный VMess JSON: {}", e))?;
+    let decoded = decode_base64_flexible(b64_payload)
+        .ok_or_else(|| "Не удалось декодировать VMess-ссылку".to_string())?;
+    let v: Value =
+        serde_json::from_str(&decoded).map_err(|e| format!("Некорректный VMess JSON: {}", e))?;
 
-    let get_str = |key: &str| -> String { v.get(key).and_then(|x| x.as_str()).map(|s| s.to_string()).unwrap_or_default() };
+    let get_str = |key: &str| -> String {
+        v.get(key)
+            .and_then(|x| x.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_default()
+    };
     let get_str_or_num = |key: &str| -> String {
         if let Some(x) = v.get(key) {
-            if let Some(s) = x.as_str() { return s.to_string(); }
-            if let Some(n) = x.as_u64() { return n.to_string(); }
+            if let Some(s) = x.as_str() {
+                return s.to_string();
+            }
+            if let Some(n) = x.as_u64() {
+                return n.to_string();
+            }
         }
         String::new()
     };
@@ -366,14 +765,49 @@ async fn build_vmess_outbound(link: &str) -> Result<(Value, String, Vec<String>)
     let port: u16 = get_str_or_num("port").parse().unwrap_or(443);
     let id = get_str("id");
     let aid: u32 = get_str_or_num("aid").parse().unwrap_or(0);
-    let scy = { let s = get_str("scy"); if s.is_empty() { "auto".to_string() } else { s } };
-    let net = { let s = get_str("net"); if s.is_empty() { "tcp".to_string() } else { s } };
+    let scy = {
+        let s = get_str("scy");
+        if s.is_empty() {
+            "auto".to_string()
+        } else {
+            s
+        }
+    };
+    let net = {
+        let s = get_str("net");
+        if s.is_empty() {
+            "tcp".to_string()
+        } else {
+            s
+        }
+    };
     let header_type = get_str("type");
     let host = get_str("host");
-    let path = { let s = get_str("path"); if s.is_empty() { "/".to_string() } else { s } };
+    let path = {
+        let s = get_str("path");
+        if s.is_empty() {
+            "/".to_string()
+        } else {
+            s
+        }
+    };
     let tls = get_str("tls");
-    let sni = { let s = get_str("sni"); if s.is_empty() { host.clone() } else { s } };
-    let fp = { let s = get_str("fp"); if s.is_empty() { "firefox".to_string() } else { s } };
+    let sni = {
+        let s = get_str("sni");
+        if s.is_empty() {
+            host.clone()
+        } else {
+            s
+        }
+    };
+    let fp = {
+        let s = get_str("fp");
+        if s.is_empty() {
+            "firefox".to_string()
+        } else {
+            s
+        }
+    };
 
     if server.is_empty() || id.is_empty() {
         return Err("VMess-ссылка не содержит адрес сервера или id".into());
@@ -386,9 +820,24 @@ async fn build_vmess_outbound(link: &str) -> Result<(Value, String, Vec<String>)
     stream_settings.insert("sockopt".to_string(), json!({ "mark": 255 }));
 
     match net.as_str() {
-        "ws" => { stream_settings.insert("wsSettings".to_string(), json!({ "path": path, "headers": { "Host": host } })); }
-        "grpc" => { stream_settings.insert("grpcSettings".to_string(), json!({ "serviceName": path.trim_start_matches('/') })); }
-        "h2" | "http" => { stream_settings.insert("httpSettings".to_string(), json!({ "path": path, "host": [host] })); }
+        "ws" => {
+            stream_settings.insert(
+                "wsSettings".to_string(),
+                json!({ "path": path, "headers": { "Host": host } }),
+            );
+        }
+        "grpc" => {
+            stream_settings.insert(
+                "grpcSettings".to_string(),
+                json!({ "serviceName": path.trim_start_matches('/') }),
+            );
+        }
+        "h2" | "http" => {
+            stream_settings.insert(
+                "httpSettings".to_string(),
+                json!({ "path": path, "host": [host] }),
+            );
+        }
         _ => {
             if header_type == "http" {
                 stream_settings.insert("tcpSettings".to_string(), json!({ "header": { "type": "http", "request": { "path": [path], "headers": { "Host": [host] } } } }));
@@ -398,7 +847,10 @@ async fn build_vmess_outbound(link: &str) -> Result<(Value, String, Vec<String>)
 
     if tls == "tls" {
         stream_settings.insert("security".to_string(), json!("tls"));
-        stream_settings.insert("tlsSettings".to_string(), json!({ "serverName": sni, "allowInsecure": false, "fingerprint": fp }));
+        stream_settings.insert(
+            "tlsSettings".to_string(),
+            json!({ "serverName": sni, "allowInsecure": false, "fingerprint": fp }),
+        );
     } else {
         stream_settings.insert("security".to_string(), json!("none"));
     }
@@ -431,18 +883,24 @@ async fn build_shadowsocks_outbound(link: &str) -> Result<(Value, String, Vec<St
     let (method, password, server, port) = if let Some(at_pos) = body.rfind('@') {
         let (userinfo_b64, hostport) = body.split_at(at_pos);
         let hostport = &hostport[1..];
-        let userinfo = decode_base64_flexible(userinfo_b64).unwrap_or_else(|| userinfo_b64.to_string());
-        let (method, password) = split_shadowsocks_userinfo(&userinfo).ok_or_else(|| "Некорректные учётные данные Shadowsocks".to_string())?;
+        let userinfo =
+            decode_base64_flexible(userinfo_b64).unwrap_or_else(|| userinfo_b64.to_string());
+        let (method, password) = split_shadowsocks_userinfo(&userinfo)
+            .ok_or_else(|| "Некорректные учётные данные Shadowsocks".to_string())?;
         let mut hp = hostport.splitn(2, ':');
         let host = hp.next().unwrap_or("").to_string();
         let port: u16 = hp.next().unwrap_or("443").parse().unwrap_or(443);
         (method, password, host, port)
     } else {
-        let decoded = decode_base64_flexible(body).ok_or_else(|| "Не удалось декодировать Shadowsocks-ссылку".to_string())?;
-        let at_pos = decoded.rfind('@').ok_or_else(|| "Некорректный формат Shadowsocks-ссылки".to_string())?;
+        let decoded = decode_base64_flexible(body)
+            .ok_or_else(|| "Не удалось декодировать Shadowsocks-ссылку".to_string())?;
+        let at_pos = decoded
+            .rfind('@')
+            .ok_or_else(|| "Некорректный формат Shadowsocks-ссылки".to_string())?;
         let (cred, hostport) = decoded.split_at(at_pos);
         let hostport = &hostport[1..];
-        let (method, password) = split_shadowsocks_userinfo(cred).ok_or_else(|| "Некорректные учётные данные Shadowsocks".to_string())?;
+        let (method, password) = split_shadowsocks_userinfo(cred)
+            .ok_or_else(|| "Некорректные учётные данные Shadowsocks".to_string())?;
         let mut hp = hostport.splitn(2, ':');
         let host = hp.next().unwrap_or("").to_string();
         let port: u16 = hp.next().unwrap_or("443").parse().unwrap_or(443);
@@ -465,36 +923,45 @@ async fn build_shadowsocks_outbound(link: &str) -> Result<(Value, String, Vec<St
 }
 
 async fn build_proxy_outbound(link: &str) -> Result<(Value, String, Vec<String>), String> {
-    if link.starts_with("vmess://") { return build_vmess_outbound(link).await; }
-    if link.starts_with("trojan://") { return build_vless_or_trojan_outbound(link, "trojan").await; }
-    if link.starts_with("ss://") { return build_shadowsocks_outbound(link).await; }
+    if link.starts_with("vmess://") {
+        return build_vmess_outbound(link).await;
+    }
+    if link.starts_with("trojan://") {
+        return build_vless_or_trojan_outbound(link, "trojan").await;
+    }
+    if link.starts_with("ss://") {
+        return build_shadowsocks_outbound(link).await;
+    }
     build_vless_or_trojan_outbound(link, "vless").await
 }
 
 async fn ensure_geo_files() -> Result<(), String> {
-    if !Path::new("/etc/karin-proxy/geo").exists() {
-        std::process::Command::new("sudo").args(["/usr/bin/mkdir", "-p", "/etc/karin-proxy/geo"]).output().ok();
-    }
-
     let files = vec![
-        ("geosite.dat", "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat"),
-        ("geoip.dat", "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat"),
+        (
+            "geosite.dat",
+            "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geosite.dat",
+        ),
+        (
+            "geoip.dat",
+            "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download/geoip.dat",
+        ),
     ];
-    
+
     for (filename, url) in files {
         let final_path = format!("/etc/karin-proxy/geo/{}", filename);
         if !Path::new(&final_path).exists() {
             let response = reqwest::get(url).await.map_err(|e| e.to_string())?;
             let content = response.bytes().await.map_err(|e| e.to_string())?;
-            
-            let tmp_path = format!("/tmp/{}", filename);
-            fs::write(&tmp_path, &content).await.map_err(|e| e.to_string())?;
-            
-            std::process::Command::new("sudo").args(["/usr/bin/cp", &tmp_path, &final_path]).output().ok();
-            std::process::Command::new("rm").args(["-f", &tmp_path]).output().ok();
+
+            let operation = if filename == "geosite.dat" {
+                "install-geosite"
+            } else {
+                "install-geoip"
+            };
+            run_privileged_helper(operation, &content)?;
         }
     }
-    
+
     Ok(())
 }
 
@@ -504,12 +971,9 @@ async fn ensure_geo_files() -> Result<(), String> {
 const XRAY_MIN_VERSION: (u32, u32, u32) = (25, 0, 0);
 
 fn find_xray_binary() -> Option<&'static str> {
-    for candidate in ["/usr/bin/xray", "/usr/local/bin/xray"] {
-        if Path::new(candidate).exists() {
-            return Some(candidate);
-        }
-    }
-    None
+    ["/usr/bin/xray", "/usr/local/bin/xray"]
+        .into_iter()
+        .find(|candidate| Path::new(candidate).exists())
 }
 
 fn parse_xray_version(output: &str) -> Option<(u32, u32, u32)> {
@@ -561,7 +1025,11 @@ async fn ensure_xray() -> Result<(), String> {
 
 fn daemon_unit_installed() -> bool {
     std::process::Command::new("systemctl")
-        .args(["list-unit-files", "--no-legend", "karin-proxy-daemon.service"])
+        .args([
+            "list-unit-files",
+            "--no-legend",
+            "karin-proxy-daemon.service",
+        ])
         .output()
         .map(|o| o.status.success() && !o.stdout.is_empty())
         .unwrap_or(false)
@@ -576,7 +1044,11 @@ fn restart_core_daemon() -> Result<(), String> {
     }
 
     let output = std::process::Command::new("sudo")
-        .args(["/usr/bin/systemctl", "restart", "karin-proxy-daemon.service"])
+        .args([
+            "/usr/bin/systemctl",
+            "restart",
+            "karin-proxy-daemon.service",
+        ])
         .output()
         .map_err(|e| e.to_string())?;
 
@@ -585,12 +1057,22 @@ fn restart_core_daemon() -> Result<(), String> {
     }
 
     let log_text = std::process::Command::new("sudo")
-        .args(["/usr/bin/journalctl", "-u", "karin-proxy-daemon.service", "-n", "15", "--no-pager"])
+        .args([
+            "/usr/bin/journalctl",
+            "-u",
+            "karin-proxy-daemon.service",
+            "-n",
+            "15",
+            "--no-pager",
+        ])
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
         .unwrap_or_else(|_| "не удалось прочитать журнал".to_string());
 
-    Err(format!("Ядро (karin-proxy-daemon.service) не запустилось. Лог:\n{}", log_text))
+    Err(format!(
+        "Ядро (karin-proxy-daemon.service) не запустилось. Лог:\n{}",
+        log_text
+    ))
 }
 
 // Ждём, пока Xray реально поднимет SOCKS/HTTP inbound на 2080, вместо
@@ -598,7 +1080,10 @@ fn restart_core_daemon() -> Result<(), String> {
 // из-за чего первое подключение выглядело неудачным и требовало второго клика.
 async fn wait_for_core_ready() -> bool {
     for _ in 0..15 {
-        if tokio::net::TcpStream::connect("127.0.0.1:2080").await.is_ok() {
+        if tokio::net::TcpStream::connect("127.0.0.1:2080")
+            .await
+            .is_ok()
+        {
             return true;
         }
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
@@ -608,14 +1093,59 @@ async fn wait_for_core_ready() -> bool {
 
 fn teardown_connections() {
     disable_kill_switch();
-    std::process::Command::new("sudo").args(["/usr/bin/systemctl", "stop", "karin-proxy-daemon.service"]).output().ok();
-    std::process::Command::new("sudo").args(["/usr/bin/pkill", "-f", "/etc/karin-proxy/openvpn.ovpn"]).output().ok();
-    std::process::Command::new("sudo").args(["/usr/bin/wg-quick", "down", "/etc/karin-proxy/wg0.conf"]).output().ok();
-    std::process::Command::new("sudo").args(["/usr/bin/iptables", "-t", "nat", "-D", "POSTROUTING", "-o", "wg0", "-j", "MASQUERADE"]).output().ok();
-    std::process::Command::new("sudo").args(["/usr/bin/ip", "rule", "del", "fwmark", "111", "lookup", "111"]).output().ok();
-    std::process::Command::new("sudo").args(["/usr/bin/iptables", "-t", "nat", "-D", "POSTROUTING", "-o", "tun-ovpn", "-j", "MASQUERADE"]).output().ok();
-    std::process::Command::new("sudo").args(["/usr/bin/cp", "/etc/karin-proxy/resolv.conf.bak", "/etc/resolv.conf"]).output().ok();
-    std::process::Command::new("sudo").args(["/usr/bin/rm", "-f", "/etc/karin-proxy/resolv.conf.bak"]).output().ok();
+    std::process::Command::new("sudo")
+        .args(["/usr/bin/systemctl", "stop", "karin-proxy-daemon.service"])
+        .output()
+        .ok();
+    std::process::Command::new("sudo")
+        .args(["-n", "/usr/libexec/karincore-helper", "openvpn-stop"])
+        .output()
+        .ok();
+    std::process::Command::new("sudo")
+        .args(["-n", "/usr/libexec/karincore-helper", "wireguard-down"])
+        .output()
+        .ok();
+    std::process::Command::new("sudo")
+        .args([
+            "/usr/bin/iptables",
+            "-t",
+            "nat",
+            "-D",
+            "POSTROUTING",
+            "-o",
+            "wg0",
+            "-j",
+            "MASQUERADE",
+        ])
+        .output()
+        .ok();
+    std::process::Command::new("sudo")
+        .args([
+            "/usr/bin/ip",
+            "rule",
+            "del",
+            "fwmark",
+            "111",
+            "lookup",
+            "111",
+        ])
+        .output()
+        .ok();
+    std::process::Command::new("sudo")
+        .args([
+            "/usr/bin/iptables",
+            "-t",
+            "nat",
+            "-D",
+            "POSTROUTING",
+            "-o",
+            "tun-ovpn",
+            "-j",
+            "MASQUERADE",
+        ])
+        .output()
+        .ok();
+    let _ = run_privileged_helper("resolver-restore", &[]);
 }
 
 // Killswitch: разрешаем OUTPUT-трафик только через loopback, туннельный
@@ -624,14 +1154,44 @@ fn teardown_connections() {
 // цикла route.sh up/down, поэтому переживают падение/автоперезапуск демона
 // (systemd Restart=on-failure) — снимаются только явным отключением или
 // новой попыткой подключения через teardown_connections().
-const KILLSWITCH_IP_FILE: &str = "/tmp/karin_killswitch_server_ip";
+static KILLSWITCH_SERVER_IP: Mutex<Option<String>> = Mutex::new(None);
 
 fn enable_kill_switch(server_ip: &str, tun_iface: &str) {
-    let _ = std::fs::write(KILLSWITCH_IP_FILE, server_ip);
-    std::process::Command::new("sudo").args(["/usr/bin/iptables", "-A", "OUTPUT", "-o", "lo", "-j", "ACCEPT"]).output().ok();
-    std::process::Command::new("sudo").args(["/usr/bin/iptables", "-A", "OUTPUT", "-o", tun_iface, "-j", "ACCEPT"]).output().ok();
-    std::process::Command::new("sudo").args(["/usr/bin/iptables", "-A", "OUTPUT", "-d", server_ip, "-j", "ACCEPT"]).output().ok();
-    std::process::Command::new("sudo").args(["/usr/bin/iptables", "-A", "OUTPUT", "-j", "DROP"]).output().ok();
+    if server_ip.parse::<std::net::IpAddr>().is_err() {
+        return;
+    }
+    if let Ok(mut value) = KILLSWITCH_SERVER_IP.lock() {
+        *value = Some(server_ip.to_string());
+    }
+    std::process::Command::new("sudo")
+        .args([
+            "/usr/bin/iptables",
+            "-A",
+            "OUTPUT",
+            "-o",
+            "lo",
+            "-j",
+            "ACCEPT",
+        ])
+        .output()
+        .ok();
+    std::process::Command::new("sudo")
+        .args([
+            "/usr/bin/iptables",
+            "-A",
+            "OUTPUT",
+            "-o",
+            tun_iface,
+            "-j",
+            "ACCEPT",
+        ])
+        .output()
+        .ok();
+    run_privileged_helper("killswitch-allow", server_ip.as_bytes()).ok();
+    std::process::Command::new("sudo")
+        .args(["/usr/bin/iptables", "-A", "OUTPUT", "-j", "DROP"])
+        .output()
+        .ok();
 }
 
 fn disable_kill_switch() {
@@ -639,21 +1199,44 @@ fn disable_kill_switch() {
     // накопились за несколько сессий (например, после аварийного завершения
     // приложения), чистим по несколько раз подряд, игнорируя ошибки "не найдено".
     for _ in 0..3 {
-        std::process::Command::new("sudo").args(["/usr/bin/iptables", "-D", "OUTPUT", "-j", "DROP"]).output().ok();
-        std::process::Command::new("sudo").args(["/usr/bin/iptables", "-D", "OUTPUT", "-o", "lo", "-j", "ACCEPT"]).output().ok();
+        std::process::Command::new("sudo")
+            .args(["/usr/bin/iptables", "-D", "OUTPUT", "-j", "DROP"])
+            .output()
+            .ok();
+        std::process::Command::new("sudo")
+            .args([
+                "/usr/bin/iptables",
+                "-D",
+                "OUTPUT",
+                "-o",
+                "lo",
+                "-j",
+                "ACCEPT",
+            ])
+            .output()
+            .ok();
         for iface in ["tun0", "tun-ovpn", "wg0"] {
-            std::process::Command::new("sudo").args(["/usr/bin/iptables", "-D", "OUTPUT", "-o", iface, "-j", "ACCEPT"]).output().ok();
+            std::process::Command::new("sudo")
+                .args([
+                    "/usr/bin/iptables",
+                    "-D",
+                    "OUTPUT",
+                    "-o",
+                    iface,
+                    "-j",
+                    "ACCEPT",
+                ])
+                .output()
+                .ok();
         }
     }
-    if let Ok(saved_ip) = std::fs::read_to_string(KILLSWITCH_IP_FILE) {
-        let ip = saved_ip.trim();
-        if !ip.is_empty() {
+    if let Ok(mut saved_ip) = KILLSWITCH_SERVER_IP.lock() {
+        if let Some(ip) = saved_ip.take() {
             for _ in 0..3 {
-                std::process::Command::new("sudo").args(["/usr/bin/iptables", "-D", "OUTPUT", "-d", ip, "-j", "ACCEPT"]).output().ok();
+                run_privileged_helper("killswitch-remove", ip.as_bytes()).ok();
             }
         }
     }
-    std::process::Command::new("sudo").args(["/usr/bin/rm", "-f", KILLSWITCH_IP_FILE]).output().ok();
 }
 
 // **********************************
@@ -708,7 +1291,12 @@ fn sanitize_wg_config(raw: &str) -> String {
             if trimmed.is_empty() || trimmed.starts_with('#') {
                 return true;
             }
-            let key = trimmed.split('=').next().unwrap_or("").trim().to_lowercase();
+            let key = trimmed
+                .split('=')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_lowercase();
             !WG_EXEC_DIRECTIVES.iter().any(|d| *d == key)
         })
         .collect::<Vec<_>>()
@@ -740,7 +1328,8 @@ fn decode_wireguard_payload(payload: &str) -> Result<String, String> {
 
 #[cfg(any(target_os = "android", test))]
 fn build_android_wireguard_outbound(wg_link: &str) -> Result<Value, String> {
-    let parsed_url = Url::parse(wg_link).map_err(|e| format!("Некорректная WireGuard ссылка: {}", e))?;
+    let parsed_url =
+        Url::parse(wg_link).map_err(|e| format!("Некорректная WireGuard ссылка: {}", e))?;
     let payload = parsed_url
         .query_pairs()
         .find_map(|(key, value)| (key == "payload").then(|| value.into_owned()))
@@ -824,7 +1413,9 @@ fn build_android_wireguard_outbound(wg_link: &str) -> Result<Value, String> {
                 _ => {}
             },
             "peer" => {
-                let Some(peer) = current_peer.as_mut() else { continue };
+                let Some(peer) = current_peer.as_mut() else {
+                    continue;
+                };
                 match key.as_str() {
                     "publickey" => peer.public_key = value.to_string(),
                     "presharedkey" => peer.pre_shared_key = value.to_string(),
@@ -933,7 +1524,10 @@ fn parse_subscription_content(text: &str) -> Result<SubscriptionResult, String> 
     let mut imported_routing: Option<Value> = None;
     let mut imported_dns: Option<Value> = None;
 
-    let parse_json = |json_str: &str, out_links: &mut Vec<String>, out_routing: &mut Option<Value>, out_dns: &mut Option<Value>| {
+    let parse_json = |json_str: &str,
+                      out_links: &mut Vec<String>,
+                      out_routing: &mut Option<Value>,
+                      out_dns: &mut Option<Value>| {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(json_str) {
             let arr = if let Some(a) = json.as_array() {
                 a.clone()
@@ -942,26 +1536,64 @@ fn parse_subscription_content(text: &str) -> Result<SubscriptionResult, String> 
             };
 
             for item in arr {
-                let remarks = item.get("remarks").and_then(|v| v.as_str()).unwrap_or("Proxy");
-                let outbounds_arr = item.get("outbounds").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+                let remarks = item
+                    .get("remarks")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Proxy");
+                let outbounds_arr = item
+                    .get("outbounds")
+                    .and_then(|v| v.as_array())
+                    .cloned()
+                    .unwrap_or_default();
 
                 if let Some(outbounds) = item.get("outbounds").and_then(|v| v.as_array()) {
                     for out in outbounds {
                         if out.get("protocol").and_then(|v| v.as_str()) == Some("vless") {
-                            let address = out.pointer("/settings/vnext/0/address").and_then(|v| v.as_str()).unwrap_or("");
-                            let port = out.pointer("/settings/vnext/0/port").and_then(|v| v.as_u64()).unwrap_or(443);
-                            let id = out.pointer("/settings/vnext/0/users/0/id").and_then(|v| v.as_str()).unwrap_or("");
-                            let flow = out.pointer("/settings/vnext/0/users/0/flow").and_then(|v| v.as_str()).unwrap_or("");
+                            let address = out
+                                .pointer("/settings/vnext/0/address")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
+                            let port = out
+                                .pointer("/settings/vnext/0/port")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(443);
+                            let id = out
+                                .pointer("/settings/vnext/0/users/0/id")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
+                            let flow = out
+                                .pointer("/settings/vnext/0/users/0/flow")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
 
                             let stream = out.get("streamSettings");
-                            let network = stream.and_then(|v| v.pointer("/network")).and_then(|v| v.as_str()).unwrap_or("tcp");
-                            let security = stream.and_then(|v| v.pointer("/security")).and_then(|v| v.as_str()).unwrap_or("none");
-                            let pbk = stream.and_then(|v| v.pointer("/realitySettings/publicKey")).and_then(|v| v.as_str()).unwrap_or("");
-                            let sni = stream.and_then(|v| v.pointer("/realitySettings/serverName")).and_then(|v| v.as_str()).unwrap_or("");
-                            let sid = stream.and_then(|v| v.pointer("/realitySettings/shortId")).and_then(|v| v.as_str()).unwrap_or("");
-                            let fp = stream.and_then(|v| v.pointer("/realitySettings/fingerprint")).and_then(|v| v.as_str()).unwrap_or("firefox");
+                            let network = stream
+                                .and_then(|v| v.pointer("/network"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("tcp");
+                            let security = stream
+                                .and_then(|v| v.pointer("/security"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("none");
+                            let pbk = stream
+                                .and_then(|v| v.pointer("/realitySettings/publicKey"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
+                            let sni = stream
+                                .and_then(|v| v.pointer("/realitySettings/serverName"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
+                            let sid = stream
+                                .and_then(|v| v.pointer("/realitySettings/shortId"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
+                            let fp = stream
+                                .and_then(|v| v.pointer("/realitySettings/fingerprint"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("firefox");
 
-                            let safe_remarks = remarks.replace(' ', "%20");
+                            let safe_remarks =
+                                utf8_percent_encode(remarks, NON_ALPHANUMERIC).to_string();
                             let link = format!("vless://{}@{}:{}?type={}&security={}&pbk={}&sni={}&sid={}&fp={}&flow={}#{}",
                                 id, address, port, network, security, pbk, sni, sid, fp, flow, safe_remarks
                             );
@@ -1004,43 +1636,58 @@ fn parse_subscription_content(text: &str) -> Result<SubscriptionResult, String> 
     };
 
     parse_json(text, &mut links, &mut imported_routing, &mut imported_dns);
-    if links.is_empty() { parse_plain(text, &mut links); }
+    if links.is_empty() {
+        parse_plain(text, &mut links);
+    }
 
     if links.is_empty() {
         let b64 = text.replace(['\n', '\r', ' ', '\t'], "");
         let engines = [
-            general_purpose::STANDARD, 
-            general_purpose::STANDARD_NO_PAD, 
-            general_purpose::URL_SAFE, 
-            general_purpose::URL_SAFE_NO_PAD
+            general_purpose::STANDARD,
+            general_purpose::STANDARD_NO_PAD,
+            general_purpose::URL_SAFE,
+            general_purpose::URL_SAFE_NO_PAD,
         ];
-        
+
         let mut decoded_str = String::new();
         let mut decoded = false;
 
         for engine in &engines {
             if let Ok(bytes) = engine.decode(&b64) {
-                if let Ok(utf8) = String::from_utf8(bytes) { 
-                    decoded_str = utf8; decoded = true; break; 
+                if let Ok(utf8) = String::from_utf8(bytes) {
+                    decoded_str = utf8;
+                    decoded = true;
+                    break;
                 }
             }
         }
-        
+
         if !decoded {
             let mut padded = b64.clone();
-            while padded.len() % 4 != 0 { padded.push('='); }
+            while !padded.len().is_multiple_of(4) {
+                padded.push('=');
+            }
             for engine in &engines {
                 if let Ok(bytes) = engine.decode(&padded) {
-                    if let Ok(utf8) = String::from_utf8(bytes) { 
-                        decoded_str = utf8; decoded = true; break; 
+                    if let Ok(utf8) = String::from_utf8(bytes) {
+                        decoded_str = utf8;
+                        decoded = true;
+                        break;
                     }
                 }
             }
         }
-        
+
         if decoded {
-            parse_json(&decoded_str, &mut links, &mut imported_routing, &mut imported_dns);
-            if links.is_empty() { parse_plain(&decoded_str, &mut links); }
+            parse_json(
+                &decoded_str,
+                &mut links,
+                &mut imported_routing,
+                &mut imported_dns,
+            );
+            if links.is_empty() {
+                parse_plain(&decoded_str, &mut links);
+            }
         }
     }
 
@@ -1048,41 +1695,25 @@ fn parse_subscription_content(text: &str) -> Result<SubscriptionResult, String> 
         return Err("Не удалось найти профили.\nВозможно формат не поддерживается.".into());
     }
 
-    Ok(SubscriptionResult { links, imported_routing, imported_dns })
+    Ok(SubscriptionResult {
+        links,
+        imported_routing,
+        imported_dns,
+    })
 }
 
 #[cfg(not(target_os = "android"))]
 #[tauri::command]
 async fn fetch_subscription(url: String) -> Result<SubscriptionResult, String> {
-    let client = reqwest::Client::builder()
-        .user_agent("KarinCore/0.1")
-        .connect_timeout(std::time::Duration::from_secs(8))
-        .timeout(std::time::Duration::from_secs(20))
-        .redirect(reqwest::redirect::Policy::limited(5))
-        .build()
-        .map_err(|e| format!("Ошибка HTTP клиента: {}", e))?;
-
+    validate_subscription_url(&url)?;
     let mut current_url = url;
     let mut text = String::new();
     let mut attempts = 0;
 
     while attempts < 2 {
-        let response = client
-            .get(&current_url)
-            .send()
-            .await
-            .map_err(|e| {
-                if e.is_timeout() {
-                    "SUBSCRIPTION_TIMEOUT: сервер подписки не ответил за 20 секунд".to_string()
-                } else if e.is_connect() {
-                    format!("SUBSCRIPTION_CONNECT: не удалось подключиться к серверу подписки: {}", e)
-                } else {
-                    format!("SUBSCRIPTION_NETWORK: {}", e)
-                }
-            })?;
-
-        let status = response.status();
-        text = response.text().await.map_err(|e| format!("SUBSCRIPTION_READ: {}", e))?;
+        let (status, fetched_text, final_url) = fetch_subscription_text(&current_url).await?;
+        text = fetched_text;
+        current_url = final_url;
 
         if !status.is_success() {
             return Err(format!(
@@ -1092,12 +1723,10 @@ async fn fetch_subscription(url: String) -> Result<SubscriptionResult, String> {
             ));
         }
 
-        if text.len() > 8 * 1024 * 1024 {
-            return Err("SUBSCRIPTION_TOO_LARGE: ответ подписки превышает 8 МБ".into());
-        }
-
         let clean_check = text.trim();
-        if (clean_check.starts_with('{') || clean_check.starts_with('[') || clean_check.contains("\"outbounds\":"))
+        if (clean_check.starts_with('{')
+            || clean_check.starts_with('[')
+            || clean_check.contains("\"outbounds\":"))
             && attempts == 0
         {
             current_url = if current_url.contains('?') {
@@ -1122,10 +1751,12 @@ async fn fetch_subscription(
 ) -> Result<SubscriptionResult, String> {
     use tauri_plugin_karin_vpn::FetchTextRequest;
 
+    validate_subscription_url(&url)?;
     let mut current_url = url;
     let mut attempts = 0;
 
     while attempts < 2 {
+        validate_subscription_url(&current_url)?;
         let fetched = app
             .karin_vpn()
             .fetch_text(FetchTextRequest {
@@ -1135,6 +1766,7 @@ async fn fetch_subscription(
             })
             .map_err(|e| e.to_string())?;
 
+        validate_subscription_url(&fetched.final_url)?;
         if !(200..300).contains(&fetched.status) {
             return Err(format!(
                 "Сервер вернул ошибку {}: {}",
@@ -1144,7 +1776,9 @@ async fn fetch_subscription(
         }
 
         let clean_check = fetched.content.trim();
-        if (clean_check.starts_with('{') || clean_check.starts_with('[') || clean_check.contains("\"outbounds\":"))
+        if (clean_check.starts_with('{')
+            || clean_check.starts_with('[')
+            || clean_check.contains("\"outbounds\":"))
             && attempts == 0
         {
             current_url = if current_url.contains('?') {
@@ -1162,6 +1796,7 @@ async fn fetch_subscription(
     Err("SUBSCRIPTION_EMPTY: не удалось получить подписку".into())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn start_openvpn_proxy(
     _state: State<'_, ProxyState>,
     ovpn_link: String,
@@ -1171,19 +1806,26 @@ async fn start_openvpn_proxy(
     allow_server_proxy: bool,
     zone_priority: Vec<String>,
     proxy_lan: bool,
-    kill_switch: bool
+    kill_switch: bool,
 ) -> Result<String, String> {
     let parsed_url = Url::parse(&ovpn_link).map_err(|e| e.to_string())?;
-    
+
     let mut b64_payload = String::new();
     for (k, v) in parsed_url.query_pairs() {
-        if k == "payload" { b64_payload = v.to_string(); }
+        if k == "payload" {
+            b64_payload = v.to_string();
+        }
     }
 
-    if b64_payload.is_empty() { return Err("Ошибка: В полученной ссылке отсутствует payload конфигурации".into()); }
+    if b64_payload.is_empty() {
+        return Err("Ошибка: В полученной ссылке отсутствует payload конфигурации".into());
+    }
 
-    let decoded_bytes = general_purpose::STANDARD.decode(&b64_payload).map_err(|e| format!("Ошибка декодирования Base64: {}", e))?;
-    let mut ovpn_config = String::from_utf8(decoded_bytes).map_err(|e| format!("Ошибка UTF-8 при сборке конфигурации: {}", e))?;
+    let decoded_bytes = general_purpose::STANDARD
+        .decode(&b64_payload)
+        .map_err(|e| format!("Ошибка декодирования Base64: {}", e))?;
+    let mut ovpn_config = String::from_utf8(decoded_bytes)
+        .map_err(|e| format!("Ошибка UTF-8 при сборке конфигурации: {}", e))?;
 
     let mut resolved_ips_for_route_del: Vec<String> = vec![];
     for line in ovpn_config.lines() {
@@ -1194,8 +1836,8 @@ async fn start_openvpn_proxy(
                 let host = parts[1];
                 if let Ok(ip) = host.parse::<std::net::IpAddr>() {
                     resolved_ips_for_route_del.push(ip.to_string());
-                } else if let Ok(mut addrs) = tokio::net::lookup_host(format!("{}:80", host)).await {
-                    while let Some(addr) = addrs.next() {
+                } else if let Ok(addrs) = tokio::net::lookup_host(format!("{}:80", host)).await {
+                    for addr in addrs {
                         resolved_ips_for_route_del.push(addr.ip().to_string());
                     }
                 }
@@ -1205,32 +1847,31 @@ async fn start_openvpn_proxy(
 
     ovpn_config = sanitize_ovpn_config(&ovpn_config);
 
-    ovpn_config.push_str("\npull-filter ignore \"redirect-gateway\"\npull-filter ignore \"dhcp-option DNS\"\npull-filter ignore \"tun-mtu\"\ntun-mtu 1360\nmssfix 1320\ndev tun-ovpn\nmark 255\nscript-security 0\n");
+    ovpn_config.push_str("\npull-filter ignore \"redirect-gateway\"\npull-filter ignore \"dhcp-option DNS\"\npull-filter ignore \"tun-mtu\"\ntun-mtu 1360\nmssfix 1320\ndev tun-ovpn\nmark 255\n");
 
-    let tmp_ovpn = "/tmp/karin_openvpn.ovpn";
-    std::fs::write(tmp_ovpn, ovpn_config).map_err(|e| format!("Ошибка записи временного файла: {}", e))?;
-    let copy_ovpn = std::process::Command::new("sudo").args(["/usr/bin/cp", tmp_ovpn, "/etc/karin-proxy/openvpn.ovpn"]).output().map_err(|e| e.to_string())?;
-    if !copy_ovpn.status.success() { return Err("Нет прав на запись конфигурации OpenVPN".into()); }
-    std::process::Command::new("rm").args(["-f", tmp_ovpn]).output().ok();
-
-    let config_path = "/etc/karin-proxy/openvpn.ovpn";
+    run_privileged_helper("install-openvpn", ovpn_config.as_bytes())
+        .map_err(|e| format!("Нет прав на запись конфигурации OpenVPN: {e}"))?;
 
     let vpn_dns_content = "nameserver 1.1.1.1\nnameserver 8.8.8.8\n";
-    let tmp_dns = "/tmp/karin_resolv.conf.vpn";
-    let _ = std::fs::write(tmp_dns, vpn_dns_content);
-    let _ = std::process::Command::new("sudo").args(["/usr/bin/cp", tmp_dns, "/etc/karin-proxy/resolv.conf.vpn"]).output();
-    let _ = std::process::Command::new("rm").args(["-f", tmp_dns]).output();
+    run_privileged_helper("install-resolv", vpn_dns_content.as_bytes())?;
 
-    if !std::path::Path::new("/etc/karin-proxy/resolv.conf.bak").exists() {
-        let _ = std::process::Command::new("sudo").args(["/usr/bin/cp", "/etc/resolv.conf", "/etc/karin-proxy/resolv.conf.bak"]).output();
-    }
-    
-    let _ = std::process::Command::new("sudo").args(["/usr/bin/cp", "/etc/karin-proxy/resolv.conf.vpn", "/etc/resolv.conf"]).output();
+    run_privileged_helper("resolver-enable", &[])?;
 
-    std::process::Command::new("sudo").args(["/usr/bin/systemctl", "stop", "karin-proxy-daemon.service"]).output().ok();
-    std::process::Command::new("sudo").args(["/usr/bin/pkill", "-f", "/etc/karin-proxy/openvpn.ovpn"]).output().ok();
+    std::process::Command::new("sudo")
+        .args(["/usr/bin/systemctl", "stop", "karin-proxy-daemon.service"])
+        .output()
+        .ok();
+    std::process::Command::new("sudo")
+        .args(["-n", "/usr/libexec/karincore-helper", "openvpn-stop"])
+        .output()
+        .ok();
 
-    let mut child = tokio::process::Command::new("sudo").args(["/usr/bin/openvpn", "--config", config_path]).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).spawn().map_err(|e| format!("Не удалось запустить процесс OpenVPN: {}", e))?;
+    let mut child = tokio::process::Command::new("sudo")
+        .args(["-n", "/usr/libexec/karincore-helper", "openvpn-start"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Не удалось запустить процесс OpenVPN: {}", e))?;
 
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();
@@ -1242,7 +1883,12 @@ async fn start_openvpn_proxy(
         use tokio::io::AsyncBufReadExt;
         let mut reader = tokio::io::BufReader::new(stdout).lines();
         while let Ok(Some(line)) = reader.next_line().await {
-            if let Ok(mut file) = tokio::fs::OpenOptions::new().create(true).append(true).open(&err_log_stdout).await {
+            if let Ok(mut file) = tokio::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&err_log_stdout)
+                .await
+            {
                 use tokio::io::AsyncWriteExt;
                 let _ = file.write_all(format!("{}\n", line).as_bytes()).await;
             }
@@ -1253,7 +1899,12 @@ async fn start_openvpn_proxy(
         use tokio::io::AsyncBufReadExt;
         let mut reader = tokio::io::BufReader::new(stderr).lines();
         while let Ok(Some(line)) = reader.next_line().await {
-            if let Ok(mut file) = tokio::fs::OpenOptions::new().create(true).append(true).open(&err_log_stderr).await {
+            if let Ok(mut file) = tokio::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&err_log_stderr)
+                .await
+            {
                 use tokio::io::AsyncWriteExt;
                 let _ = file.write_all(format!("{}\n", line).as_bytes()).await;
             }
@@ -1263,21 +1914,94 @@ async fn start_openvpn_proxy(
     let mut attempts = 0;
     while attempts < 20 {
         if std::path::Path::new("/sys/class/net/tun-ovpn").exists() {
-            std::process::Command::new("sudo").args(["/usr/bin/ip", "rule", "del", "fwmark", "111", "lookup", "111"]).output().ok();
-            std::process::Command::new("sudo").args(["/usr/bin/ip", "route", "add", "default", "dev", "tun-ovpn", "table", "111"]).output().ok();
-            std::process::Command::new("sudo").args(["/usr/bin/ip", "rule", "add", "fwmark", "111", "lookup", "111"]).output().ok();
-            std::process::Command::new("sudo").args(["/usr/bin/sysctl", "-w", "net.ipv4.conf.tun-ovpn.rp_filter=0"]).output().ok();
-            std::process::Command::new("sudo").args(["/usr/bin/sysctl", "-w", "net.ipv4.conf.all.rp_filter=0"]).output().ok();
-            std::process::Command::new("sudo").args(["/usr/bin/iptables", "-t", "nat", "-D", "POSTROUTING", "-o", "tun-ovpn", "-j", "MASQUERADE"]).output().ok();
-            std::process::Command::new("sudo").args(["/usr/bin/iptables", "-t", "nat", "-A", "POSTROUTING", "-o", "tun-ovpn", "-j", "MASQUERADE"]).output().ok();
+            std::process::Command::new("sudo")
+                .args([
+                    "/usr/bin/ip",
+                    "rule",
+                    "del",
+                    "fwmark",
+                    "111",
+                    "lookup",
+                    "111",
+                ])
+                .output()
+                .ok();
+            std::process::Command::new("sudo")
+                .args([
+                    "/usr/bin/ip",
+                    "route",
+                    "add",
+                    "default",
+                    "dev",
+                    "tun-ovpn",
+                    "table",
+                    "111",
+                ])
+                .output()
+                .ok();
+            std::process::Command::new("sudo")
+                .args([
+                    "/usr/bin/ip",
+                    "rule",
+                    "add",
+                    "fwmark",
+                    "111",
+                    "lookup",
+                    "111",
+                ])
+                .output()
+                .ok();
+            std::process::Command::new("sudo")
+                .args([
+                    "/usr/bin/sysctl",
+                    "-w",
+                    "net.ipv4.conf.tun-ovpn.rp_filter=0",
+                ])
+                .output()
+                .ok();
+            std::process::Command::new("sudo")
+                .args(["/usr/bin/sysctl", "-w", "net.ipv4.conf.all.rp_filter=0"])
+                .output()
+                .ok();
+            std::process::Command::new("sudo")
+                .args([
+                    "/usr/bin/iptables",
+                    "-t",
+                    "nat",
+                    "-D",
+                    "POSTROUTING",
+                    "-o",
+                    "tun-ovpn",
+                    "-j",
+                    "MASQUERADE",
+                ])
+                .output()
+                .ok();
+            std::process::Command::new("sudo")
+                .args([
+                    "/usr/bin/iptables",
+                    "-t",
+                    "nat",
+                    "-A",
+                    "POSTROUTING",
+                    "-o",
+                    "tun-ovpn",
+                    "-j",
+                    "MASQUERADE",
+                ])
+                .output()
+                .ok();
             tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
             break;
         }
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         attempts += 1;
     }
-    
-    if attempts >= 20 { teardown_connections(); return Err("Таймаут: сервер OpenVPN не отвечает".into()); }
+
+    if attempts >= 20 {
+        teardown_connections();
+        return Err("Таймаут: сервер OpenVPN не отвечает".into());
+    }
 
     let dynamic_rules = build_xray_rules(routing_state, zone_priority);
 
@@ -1294,8 +2018,11 @@ async fn start_openvpn_proxy(
         ]);
     }
     all_rules.push(json!({ "type": "field", "ip": local_ips, "outboundTag": "direct" }));
-    if let Some(rules_array) = dynamic_rules.as_array() { all_rules.extend(rules_array.clone()); }
-    all_rules.push(json!({ "type": "field", "network": "tcp,udp", "outboundTag": default_outbound }));
+    if let Some(rules_array) = dynamic_rules.as_array() {
+        all_rules.extend(rules_array.clone());
+    }
+    all_rules
+        .push(json!({ "type": "field", "network": "tcp,udp", "outboundTag": default_outbound }));
 
     let (err_log, acc_log) = get_log_paths();
 
@@ -1314,26 +2041,23 @@ async fn start_openvpn_proxy(
         ]
     });
 
-    let tmp_conf = "/tmp/karin_config.json";
-    std::fs::write(tmp_conf, config.to_string()).map_err(|e| e.to_string())?;
+    run_privileged_helper("install-xray", config.to_string().as_bytes())
+        .map_err(|e| format!("Нет прав на обновление конфигурации Xray: {e}"))?;
 
-    let copy_status = std::process::Command::new("sudo")
-        .args(["/usr/bin/cp", tmp_conf, "/etc/karin-proxy/config.json"])
-        .output()
-        .map_err(|e| e.to_string())?;
-
-    if !copy_status.status.success() {
-        return Err("Нет прав на обновление конфигурации Xray".into());
+    if let Err(e) = restart_core_daemon() {
+        teardown_connections();
+        return Err(e);
     }
 
-    std::process::Command::new("rm").args(["-f", tmp_conf]).output().ok();
-
-    if let Err(e) = restart_core_daemon() { teardown_connections(); return Err(e); }
-
-    if let Ok(mut guard) = _state.auth_token.lock() { *guard = Some("openvpn_mode".to_string()); }
+    if let Ok(mut guard) = _state.auth_token.lock() {
+        *guard = Some("openvpn_mode".to_string());
+    }
     if !wait_for_core_ready().await {
         teardown_connections();
-        return Err("Ядро не успело подняться (порт 2080 не отвечает). Попробуйте подключиться ещё раз.".into());
+        return Err(
+            "Ядро не успело подняться (порт 2080 не отвечает). Попробуйте подключиться ещё раз."
+                .into(),
+        );
     }
 
     if kill_switch {
@@ -1346,11 +2070,7 @@ async fn start_openvpn_proxy(
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
             for ip in resolved_ips_for_route_del {
-                let _ = std::process::Command::new("sudo").args(["-n", "/usr/bin/ip", "rule", "del", "to", &ip, "lookup", "main"]).output();
-                let ip_32 = format!("{}/32", ip);
-                let _ = std::process::Command::new("sudo").args(["-n", "/usr/bin/ip", "rule", "del", "to", &ip_32, "lookup", "main"]).output();
-                let _ = std::process::Command::new("sudo").args(["-n", "/usr/bin/ip", "route", "del", &ip]).output();
-                let _ = std::process::Command::new("sudo").args(["-n", "/usr/bin/ip", "route", "del", &ip_32]).output();
+                run_privileged_helper("route-delete", ip.as_bytes()).ok();
             }
         });
     }
@@ -1358,6 +2078,7 @@ async fn start_openvpn_proxy(
     Ok("OK".into())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn start_wireguard_proxy(
     _state: State<'_, ProxyState>,
     wg_link: String,
@@ -1367,101 +2088,218 @@ async fn start_wireguard_proxy(
     allow_server_proxy: bool,
     zone_priority: Vec<String>,
     proxy_lan: bool,
-    kill_switch: bool
+    kill_switch: bool,
 ) -> Result<String, String> {
     let parsed_url = Url::parse(&wg_link).map_err(|e| e.to_string())?;
-    
-    let mut b64_payload = String::new();
-    for (k, v) in parsed_url.query_pairs() { if k == "payload" { b64_payload = v.to_string(); } }
-    if b64_payload.is_empty() { return Err("Ошибка: В полученной ссылке отсутствует payload конфигурации".into()); }
 
-    let decoded_bytes = general_purpose::STANDARD.decode(&b64_payload).map_err(|e| format!("Ошибка Base64: {}", e))?;
+    let mut b64_payload = String::new();
+    for (k, v) in parsed_url.query_pairs() {
+        if k == "payload" {
+            b64_payload = v.to_string();
+        }
+    }
+    if b64_payload.is_empty() {
+        return Err("Ошибка: В полученной ссылке отсутствует payload конфигурации".into());
+    }
+
+    let decoded_bytes = general_purpose::STANDARD
+        .decode(&b64_payload)
+        .map_err(|e| format!("Ошибка Base64: {}", e))?;
     let raw_conf = String::from_utf8(decoded_bytes).map_err(|e| format!("Ошибка UTF-8: {}", e))?;
     let original_conf = sanitize_wg_config(&raw_conf);
 
     let mut resolved_ips_for_route_del: Vec<String> = vec![];
     let mut modified_conf = String::new();
-    
+
     for line in original_conf.lines() {
         let trimmed = line.trim();
-        if trimmed.to_lowercase().starts_with("dns") { continue; }
-        
+        if trimmed.to_lowercase().starts_with("dns") {
+            continue;
+        }
+
         if trimmed.to_lowercase().starts_with("endpoint") {
             let parts: Vec<&str> = trimmed.split('=').collect();
             if parts.len() >= 2 {
                 let endpoint = parts[1].trim();
-                let host = endpoint.rsplit_once(':').map(|(h, _)| h).unwrap_or(endpoint);
+                let host = endpoint
+                    .rsplit_once(':')
+                    .map(|(h, _)| h)
+                    .unwrap_or(endpoint);
                 if let Ok(ip) = host.parse::<std::net::IpAddr>() {
                     resolved_ips_for_route_del.push(ip.to_string());
-                } else if let Ok(mut addrs) = tokio::net::lookup_host(format!("{}:80", host)).await {
-                    while let Some(addr) = addrs.next() { resolved_ips_for_route_del.push(addr.ip().to_string()); }
+                } else if let Ok(addrs) = tokio::net::lookup_host(format!("{}:80", host)).await {
+                    for addr in addrs {
+                        resolved_ips_for_route_del.push(addr.ip().to_string());
+                    }
                 }
             }
         }
-        
-        modified_conf.push_str(line); modified_conf.push('\n');
-        
+
+        modified_conf.push_str(line);
+        modified_conf.push('\n');
+
         if trimmed.to_lowercase() == "[interface]" {
-            modified_conf.push_str("Table = off\nFwMark = 255\n"); 
+            modified_conf.push_str("Table = off\nFwMark = 255\n");
         }
     }
 
-    let tmp_wg = "/tmp/karin_wg0.conf";
-    std::fs::write(tmp_wg, modified_conf).map_err(|e| format!("Ошибка записи временного файла: {}", e))?;
-    let copy_wg = std::process::Command::new("sudo").args(["/usr/bin/cp", tmp_wg, "/etc/karin-proxy/wg0.conf"]).output().map_err(|e| e.to_string())?;
-    if !copy_wg.status.success() { return Err("Нет прав на запись конфигурации WireGuard".into()); }
-    std::process::Command::new("rm").args(["-f", tmp_wg]).output().ok();
-
-    let config_path = "/etc/karin-proxy/wg0.conf";
+    run_privileged_helper("install-wireguard", modified_conf.as_bytes())
+        .map_err(|e| format!("Нет прав на запись конфигурации WireGuard: {e}"))?;
 
     let vpn_dns_content = "nameserver 1.1.1.1\nnameserver 8.8.8.8\n";
-    let tmp_dns = "/tmp/karin_resolv.conf.vpn";
-    let _ = std::fs::write(tmp_dns, vpn_dns_content);
-    let _ = std::process::Command::new("sudo").args(["/usr/bin/cp", tmp_dns, "/etc/karin-proxy/resolv.conf.vpn"]).output();
-    let _ = std::process::Command::new("rm").args(["-f", tmp_dns]).output();
-    if !std::path::Path::new("/etc/karin-proxy/resolv.conf.bak").exists() { let _ = std::process::Command::new("sudo").args(["/usr/bin/cp", "/etc/resolv.conf", "/etc/karin-proxy/resolv.conf.bak"]).output(); }
-    let _ = std::process::Command::new("sudo").args(["/usr/bin/cp", "/etc/karin-proxy/resolv.conf.vpn", "/etc/resolv.conf"]).output();
+    run_privileged_helper("install-resolv", vpn_dns_content.as_bytes())?;
+    run_privileged_helper("resolver-enable", &[])?;
 
-    std::process::Command::new("sudo").args(["/usr/bin/systemctl", "stop", "karin-proxy-daemon.service"]).output().ok();
-    std::process::Command::new("sudo").args(["/usr/bin/wg-quick", "down", config_path]).output().ok();
+    std::process::Command::new("sudo")
+        .args(["/usr/bin/systemctl", "stop", "karin-proxy-daemon.service"])
+        .output()
+        .ok();
+    std::process::Command::new("sudo")
+        .args(["-n", "/usr/libexec/karincore-helper", "wireguard-down"])
+        .output()
+        .ok();
 
-    let output = std::process::Command::new("sudo").args(["/usr/bin/wg-quick", "up", config_path]).output().map_err(|e| format!("Не удалось запустить wg-quick: {}", e))?;
+    let output = std::process::Command::new("sudo")
+        .args(["-n", "/usr/libexec/karincore-helper", "wireguard-up"])
+        .output()
+        .map_err(|e| format!("Не удалось запустить wg-quick: {}", e))?;
 
     let (err_log, _) = get_log_paths();
 
-    if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(&err_log) {
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&err_log)
+    {
         use std::io::Write;
         let _ = writeln!(file, "[WireGuard] Инициализация интерфейса wg0...");
-        if !output.stdout.is_empty() { let _ = writeln!(file, "{}", String::from_utf8_lossy(&output.stdout)); }
-        if !output.stderr.is_empty() { let _ = writeln!(file, "{}", String::from_utf8_lossy(&output.stderr)); }
+        if !output.stdout.is_empty() {
+            let _ = writeln!(file, "{}", String::from_utf8_lossy(&output.stdout));
+        }
+        if !output.stderr.is_empty() {
+            let _ = writeln!(file, "{}", String::from_utf8_lossy(&output.stderr));
+        }
     }
 
-    if !output.status.success() { teardown_connections(); return Err(format!("Ошибка WireGuard:\n{}", String::from_utf8_lossy(&output.stderr))); }
+    if !output.status.success() {
+        teardown_connections();
+        return Err(format!(
+            "Ошибка WireGuard:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
 
-    std::process::Command::new("sudo").args(["/usr/bin/ip", "rule", "del", "fwmark", "111", "lookup", "111"]).output().ok();
-    std::process::Command::new("sudo").args(["/usr/bin/ip", "route", "add", "default", "dev", "wg0", "table", "111"]).output().ok();
-    std::process::Command::new("sudo").args(["/usr/bin/ip", "rule", "add", "fwmark", "111", "lookup", "111"]).output().ok();
-    std::process::Command::new("sudo").args(["/usr/bin/sysctl", "-w", "net.ipv4.conf.wg0.rp_filter=0"]).output().ok();
-    std::process::Command::new("sudo").args(["/usr/bin/sysctl", "-w", "net.ipv4.conf.all.rp_filter=0"]).output().ok();
-    std::process::Command::new("sudo").args(["/usr/bin/iptables", "-t", "nat", "-D", "POSTROUTING", "-o", "wg0", "-j", "MASQUERADE"]).output().ok();
-    std::process::Command::new("sudo").args(["/usr/bin/iptables", "-t", "nat", "-A", "POSTROUTING", "-o", "wg0", "-j", "MASQUERADE"]).output().ok();
+    std::process::Command::new("sudo")
+        .args([
+            "/usr/bin/ip",
+            "rule",
+            "del",
+            "fwmark",
+            "111",
+            "lookup",
+            "111",
+        ])
+        .output()
+        .ok();
+    std::process::Command::new("sudo")
+        .args([
+            "/usr/bin/ip",
+            "route",
+            "add",
+            "default",
+            "dev",
+            "wg0",
+            "table",
+            "111",
+        ])
+        .output()
+        .ok();
+    std::process::Command::new("sudo")
+        .args([
+            "/usr/bin/ip",
+            "rule",
+            "add",
+            "fwmark",
+            "111",
+            "lookup",
+            "111",
+        ])
+        .output()
+        .ok();
+    std::process::Command::new("sudo")
+        .args(["/usr/bin/sysctl", "-w", "net.ipv4.conf.wg0.rp_filter=0"])
+        .output()
+        .ok();
+    std::process::Command::new("sudo")
+        .args(["/usr/bin/sysctl", "-w", "net.ipv4.conf.all.rp_filter=0"])
+        .output()
+        .ok();
+    std::process::Command::new("sudo")
+        .args([
+            "/usr/bin/iptables",
+            "-t",
+            "nat",
+            "-D",
+            "POSTROUTING",
+            "-o",
+            "wg0",
+            "-j",
+            "MASQUERADE",
+        ])
+        .output()
+        .ok();
+    std::process::Command::new("sudo")
+        .args([
+            "/usr/bin/iptables",
+            "-t",
+            "nat",
+            "-A",
+            "POSTROUTING",
+            "-o",
+            "wg0",
+            "-j",
+            "MASQUERADE",
+        ])
+        .output()
+        .ok();
 
     let log_path_clone = err_log.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3));
         loop {
             interval.tick().await;
-            if !std::path::Path::new("/sys/class/net/wg0").exists() { break; }
-            let wg_status = std::process::Command::new("sudo").args(["/usr/bin/wg", "show", "wg0"]).output();
+            if !std::path::Path::new("/sys/class/net/wg0").exists() {
+                break;
+            }
+            let wg_status = std::process::Command::new("sudo")
+                .args(["/usr/bin/wg", "show", "wg0"])
+                .output();
             if let Ok(out) = wg_status {
                 if out.status.success() {
                     let status_str = String::from_utf8_lossy(&out.stdout);
                     let mut log_lines = Vec::new();
-                    for line in status_str.lines() { if line.contains("latest handshake:") || line.contains("transfer:") || line.contains("endpoint:") { log_lines.push(line.trim().to_string()); } }
+                    for line in status_str.lines() {
+                        if line.contains("latest handshake:")
+                            || line.contains("transfer:")
+                            || line.contains("endpoint:")
+                        {
+                            log_lines.push(line.trim().to_string());
+                        }
+                    }
                     if !log_lines.is_empty() {
-                        if let Ok(mut file) = tokio::fs::OpenOptions::new().create(true).append(true).open(&log_path_clone).await {
+                        if let Ok(mut file) = tokio::fs::OpenOptions::new()
+                            .create(true)
+                            .append(true)
+                            .open(&log_path_clone)
+                            .await
+                        {
                             use tokio::io::AsyncWriteExt;
-                            let _ = file.write_all(format!("[WireGuard Status] {}\n", log_lines.join(" | ")).as_bytes()).await;
+                            let _ = file
+                                .write_all(
+                                    format!("[WireGuard Status] {}\n", log_lines.join(" | "))
+                                        .as_bytes(),
+                                )
+                                .await;
                         }
                     }
                 }
@@ -1484,8 +2322,11 @@ async fn start_wireguard_proxy(
         ]);
     }
     all_rules.push(json!({ "type": "field", "ip": local_ips, "outboundTag": "direct" }));
-    if let Some(rules_array) = dynamic_rules.as_array() { all_rules.extend(rules_array.clone()); }
-    all_rules.push(json!({ "type": "field", "network": "tcp,udp", "outboundTag": default_outbound }));
+    if let Some(rules_array) = dynamic_rules.as_array() {
+        all_rules.extend(rules_array.clone());
+    }
+    all_rules
+        .push(json!({ "type": "field", "network": "tcp,udp", "outboundTag": default_outbound }));
 
     let (err_log, acc_log) = get_log_paths();
 
@@ -1504,26 +2345,23 @@ async fn start_wireguard_proxy(
         ]
     });
 
-    let tmp_conf = "/tmp/karin_config.json";
-    std::fs::write(tmp_conf, config.to_string()).map_err(|e| e.to_string())?;
+    run_privileged_helper("install-xray", config.to_string().as_bytes())
+        .map_err(|e| format!("Нет прав на обновление конфигурации Xray: {e}"))?;
 
-    let copy_status = std::process::Command::new("sudo")
-        .args(["/usr/bin/cp", tmp_conf, "/etc/karin-proxy/config.json"])
-        .output()
-        .map_err(|e| e.to_string())?;
-
-    if !copy_status.status.success() {
-        return Err("Нет прав на обновление конфигурации Xray".into());
+    if let Err(e) = restart_core_daemon() {
+        teardown_connections();
+        return Err(e);
     }
 
-    std::process::Command::new("rm").args(["-f", tmp_conf]).output().ok();
-
-    if let Err(e) = restart_core_daemon() { teardown_connections(); return Err(e); }
-
-    if let Ok(mut guard) = _state.auth_token.lock() { *guard = Some("wireguard_mode".to_string()); }
+    if let Ok(mut guard) = _state.auth_token.lock() {
+        *guard = Some("wireguard_mode".to_string());
+    }
     if !wait_for_core_ready().await {
         teardown_connections();
-        return Err("Ядро не успело подняться (порт 2080 не отвечает). Попробуйте подключиться ещё раз.".into());
+        return Err(
+            "Ядро не успело подняться (порт 2080 не отвечает). Попробуйте подключиться ещё раз."
+                .into(),
+        );
     }
 
     if kill_switch {
@@ -1536,11 +2374,7 @@ async fn start_wireguard_proxy(
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
             for ip in resolved_ips_for_route_del {
-                let _ = std::process::Command::new("sudo").args(["-n", "/usr/bin/ip", "rule", "del", "to", &ip, "lookup", "main"]).output();
-                let ip_32 = format!("{}/32", ip);
-                let _ = std::process::Command::new("sudo").args(["-n", "/usr/bin/ip", "rule", "del", "to", &ip_32, "lookup", "main"]).output();
-                let _ = std::process::Command::new("sudo").args(["-n", "/usr/bin/ip", "route", "del", &ip]).output();
-                let _ = std::process::Command::new("sudo").args(["-n", "/usr/bin/ip", "route", "del", &ip_32]).output();
+                run_privileged_helper("route-delete", ip.as_bytes()).ok();
             }
         });
     }
@@ -1550,30 +2384,55 @@ async fn start_wireguard_proxy(
 
 #[cfg(not(target_os = "android"))]
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 async fn start_proxy(
-    _state: State<'_, ProxyState>, 
-    vless_link: String, 
-    routing_state: serde_json::Value, 
+    _state: State<'_, ProxyState>,
+    vless_link: String,
+    routing_state: serde_json::Value,
     default_outbound: String,
     dns_params: serde_json::Value,
     allow_server_proxy: bool,
     zone_priority: Vec<String>,
     proxy_lan: bool,
-    kill_switch: bool
+    kill_switch: bool,
 ) -> Result<String, String> {
     teardown_connections();
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
     if vless_link.starts_with("ovpn://") {
-        return start_openvpn_proxy(_state, vless_link, routing_state, default_outbound, dns_params, allow_server_proxy, zone_priority, proxy_lan, kill_switch).await;
+        return start_openvpn_proxy(
+            _state,
+            vless_link,
+            routing_state,
+            default_outbound,
+            dns_params,
+            allow_server_proxy,
+            zone_priority,
+            proxy_lan,
+            kill_switch,
+        )
+        .await;
     }
 
     if vless_link.starts_with("wg://") {
-        return start_wireguard_proxy(_state, vless_link, routing_state, default_outbound, dns_params, allow_server_proxy, zone_priority, proxy_lan, kill_switch).await;
+        return start_wireguard_proxy(
+            _state,
+            vless_link,
+            routing_state,
+            default_outbound,
+            dns_params,
+            allow_server_proxy,
+            zone_priority,
+            proxy_lan,
+            kill_switch,
+        )
+        .await;
     }
 
     let token = generate_token();
-    if let Ok(mut guard) = _state.auth_token.lock() { *guard = Some(token.clone()); }
+    if let Ok(mut guard) = _state.auth_token.lock() {
+        *guard = Some(token.clone());
+    }
 
     let (proxy_outbound, out_addr, resolved_ips) = build_proxy_outbound(&vless_link).await?;
 
@@ -1594,8 +2453,11 @@ async fn start_proxy(
         ]);
     }
     all_rules.push(json!({ "type": "field", "ip": local_ips, "outboundTag": "direct" }));
-    if let Some(rules_array) = dynamic_rules.as_array() { all_rules.extend(rules_array.clone()); }
-    all_rules.push(json!({ "type": "field", "network": "tcp,udp", "outboundTag": default_outbound }));
+    if let Some(rules_array) = dynamic_rules.as_array() {
+        all_rules.extend(rules_array.clone());
+    }
+    all_rules
+        .push(json!({ "type": "field", "network": "tcp,udp", "outboundTag": default_outbound }));
 
     let (err_log, acc_log) = get_log_paths();
 
@@ -1617,29 +2479,37 @@ async fn start_proxy(
         ]
     });
 
-    let tmp_conf = "/tmp/karin_config.json";
-    std::fs::write(tmp_conf, config.to_string()).map_err(|e| e.to_string())?;
+    run_privileged_helper("install-xray", config.to_string().as_bytes())
+        .map_err(|e| format!("Нет прав на обновление конфигурации Xray: {e}"))?;
 
-    let copy_status = std::process::Command::new("sudo")
-        .args(["/usr/bin/cp", tmp_conf, "/etc/karin-proxy/config.json"])
-        .output()
-        .map_err(|e| e.to_string())?;
+    let rotate_if_needed = |path: &str| {
+        if let Ok(meta) = std::fs::metadata(path) {
+            if meta.len() > 5 * 1024 * 1024 {
+                let _ = std::fs::write(path, "");
+            }
+        }
+    };
+    rotate_if_needed(&err_log);
+    rotate_if_needed(&acc_log);
+    let _ = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&err_log);
+    let _ = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&acc_log);
 
-    if !copy_status.status.success() {
-        return Err("Нет прав на обновление конфигурации Xray".into());
+    if let Err(e) = restart_core_daemon() {
+        teardown_connections();
+        return Err(e);
     }
-
-    std::process::Command::new("rm").args(["-f", tmp_conf]).output().ok();
-
-    let rotate_if_needed = |path: &str| { if let Ok(meta) = std::fs::metadata(path) { if meta.len() > 5 * 1024 * 1024 { let _ = std::fs::write(path, ""); } } };
-    rotate_if_needed(&err_log); rotate_if_needed(&acc_log);
-    let _ = std::fs::OpenOptions::new().create(true).append(true).open(&err_log);
-    let _ = std::fs::OpenOptions::new().create(true).append(true).open(&acc_log);
-
-    if let Err(e) = restart_core_daemon() { teardown_connections(); return Err(e); }
     if !wait_for_core_ready().await {
         teardown_connections();
-        return Err("Ядро не успело подняться (порт 2080 не отвечает). Попробуйте подключиться ещё раз.".into());
+        return Err(
+            "Ядро не успело подняться (порт 2080 не отвечает). Попробуйте подключиться ещё раз."
+                .into(),
+        );
     }
     if kill_switch {
         enable_kill_switch(&out_addr, "tun0");
@@ -1649,21 +2519,21 @@ async fn start_proxy(
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
             for ip in ips_to_delete {
-                let _ = std::process::Command::new("sudo").args(["-n", "/usr/bin/ip", "rule", "del", "to", &ip, "lookup", "main"]).output();
-                let ip_32 = format!("{}/32", ip);
-                let _ = std::process::Command::new("sudo").args(["-n", "/usr/bin/ip", "rule", "del", "to", &ip_32, "lookup", "main"]).output();
+                run_privileged_helper("route-delete", ip.as_bytes()).ok();
             }
         });
     }
-    
+
     Ok("OK".into())
 }
 
 #[cfg(not(target_os = "android"))]
 #[tauri::command]
 fn stop_proxy(_state: State<'_, ProxyState>) -> Result<String, String> {
-    if let Ok(mut guard) = _state.auth_token.lock() { *guard = None; }
-    teardown_connections();  
+    if let Ok(mut guard) = _state.auth_token.lock() {
+        *guard = None;
+    }
+    teardown_connections();
     Ok("Остановлено".into())
 }
 
@@ -1742,13 +2612,23 @@ async fn check_ping(state: State<'_, ProxyState>) -> Result<String, String> {
 
 #[cfg(not(target_os = "android"))]
 #[tauri::command]
-fn open_browser(url: String) { std::process::Command::new("xdg-open").arg(url).spawn().ok(); }
+fn open_browser(url: String) -> Result<(), String> {
+    let parsed = Url::parse(&url).map_err(|_| "BROWSER_URL_INVALID".to_string())?;
+    if parsed.scheme() != "https" || parsed.host_str() != Some("github.com") {
+        return Err("BROWSER_URL_FORBIDDEN".into());
+    }
+    std::process::Command::new("xdg-open")
+        .arg(parsed.as_str())
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
 
 #[cfg(not(target_os = "android"))]
 #[tauri::command]
 fn get_logs() -> Result<String, String> {
     let (log_path, _) = get_log_paths();
-    
+
     // Проверяем, существует ли файл, ДО того как его читать
     if !std::path::Path::new(&log_path).exists() {
         return Ok("Ожидание запуска прокси (файлы логов еще не созданы)...".to_string());
@@ -1756,27 +2636,71 @@ fn get_logs() -> Result<String, String> {
 
     match std::fs::read_to_string(&log_path) {
         Ok(content) => {
-            if content.trim().is_empty() { 
-                return Ok("Ожидание логов (Прокси работает, ожидаем сетевой трафик)...".to_string()); 
+            if content.trim().is_empty() {
+                return Ok(
+                    "Ожидание логов (Прокси работает, ожидаем сетевой трафик)...".to_string(),
+                );
             }
             let lines: Vec<&str> = content.lines().collect();
-            let last_lines = if lines.len() > 50 { &lines[lines.len() - 50..] } else { &lines[..] };
+            let last_lines = if lines.len() > 50 {
+                &lines[lines.len() - 50..]
+            } else {
+                &lines[..]
+            };
             Ok(last_lines.join("\n"))
-        },
-        Err(e) => Ok(format!("Ошибка чтения логов: {}\nУбедитесь, что прокси запущен.", e))
+        }
+        Err(e) => Ok(format!(
+            "Ошибка чтения логов: {}\nУбедитесь, что прокси запущен.",
+            e
+        )),
     }
 }
 
 #[tauri::command]
-fn get_geosite_list() -> Vec<String> { 
-    vec!["google", "youtube", "telegram", "vk", "yandex", "mailru", "github", "netflix", "spotify", "instagram", "twitter", "facebook", "tiktok", "apple", "microsoft", "amazon", "discord", "reddit", "twitch", "ru", "cn", "us", "geolocation-!cn", "geolocation-!ru", "category-ads-all", "category-porn", "category-games", "private", "speedtest", "openai"].into_iter().map(String::from).collect() 
+fn get_geosite_list() -> Vec<String> {
+    vec![
+        "google",
+        "youtube",
+        "telegram",
+        "vk",
+        "yandex",
+        "mailru",
+        "github",
+        "netflix",
+        "spotify",
+        "instagram",
+        "twitter",
+        "facebook",
+        "tiktok",
+        "apple",
+        "microsoft",
+        "amazon",
+        "discord",
+        "reddit",
+        "twitch",
+        "ru",
+        "cn",
+        "us",
+        "geolocation-!cn",
+        "geolocation-!ru",
+        "category-ads-all",
+        "category-porn",
+        "category-games",
+        "private",
+        "speedtest",
+        "openai",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect()
 }
 
 #[cfg(not(target_os = "android"))]
 #[tauri::command]
 fn clear_logs() -> Result<String, String> {
     let (err_log, acc_log) = get_log_paths();
-    let _ = std::fs::write(&err_log, ""); let _ = std::fs::write(&acc_log, "");
+    let _ = std::fs::write(&err_log, "");
+    let _ = std::fs::write(&acc_log, "");
     Ok("Очищено".into())
 }
 
@@ -1784,33 +2708,54 @@ fn clear_logs() -> Result<String, String> {
 #[tauri::command]
 async fn export_profile(filename: String, content: String) -> Result<String, String> {
     let result = tokio::task::spawn_blocking(move || {
-        if let Some(path) = rfd::FileDialog::new().set_title("Экспорт профиля маршрутизации").set_file_name(&filename).add_filter("JSON Config", &["json"]).save_file() {
-            std::fs::write(&path, content).map_err(|e| format!("Ошибка записи: {}", e))?; Ok(format!("Сохранено в {}", path.display()))
-        } else { Err("Отменено".to_string()) }
-    }).await.map_err(|e| format!("Ошибка потока: {}", e))?;
+        if let Some(path) = rfd::FileDialog::new()
+            .set_title("Экспорт профиля маршрутизации")
+            .set_file_name(&filename)
+            .add_filter("JSON Config", &["json"])
+            .save_file()
+        {
+            std::fs::write(&path, content).map_err(|e| format!("Ошибка записи: {}", e))?;
+            Ok(format!("Сохранено в {}", path.display()))
+        } else {
+            Err("Отменено".to_string())
+        }
+    })
+    .await
+    .map_err(|e| format!("Ошибка потока: {}", e))?;
     result
 }
 
 #[cfg(not(target_os = "android"))]
 #[tauri::command]
-fn minimize_window(window: tauri::Window) { let _ = window.minimize(); }
+fn minimize_window(window: tauri::Window) {
+    let _ = window.minimize();
+}
 
 #[cfg(not(target_os = "android"))]
 #[tauri::command]
 fn maximize_window(window: tauri::Window) {
-    if let Ok(maximized) = window.is_maximized() { if maximized { let _ = window.unmaximize(); } else { let _ = window.maximize(); } }
+    if let Ok(maximized) = window.is_maximized() {
+        if maximized {
+            let _ = window.unmaximize();
+        } else {
+            let _ = window.maximize();
+        }
+    }
 }
 
 #[cfg(not(target_os = "android"))]
 #[tauri::command]
 fn close_window(_window: tauri::Window, _state: State<'_, ProxyState>) {
-    if let Ok(mut guard) = _state.auth_token.lock() { *guard = None; }
-    teardown_connections(); std::process::exit(0);
+    if let Ok(mut guard) = _state.auth_token.lock() {
+        *guard = None;
+    }
+    teardown_connections();
+    std::process::exit(0);
 }
-
 
 #[cfg(target_os = "android")]
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 async fn start_proxy(
     app: tauri::AppHandle,
     state: State<'_, ProxyState>,
@@ -1887,6 +2832,12 @@ async fn start_proxy(
         "outboundTag": default_outbound
     }));
 
+    let android_tun_mtu = if vless_link.starts_with("wg://") {
+        1420
+    } else {
+        1500
+    };
+
     let config = json!({
         "log": { "loglevel": "warning" },
         "dns": dns_config,
@@ -1900,7 +2851,7 @@ async fn start_proxy(
                 "protocol": "tun",
                 "settings": {
                     "name": "xray0",
-                    "mtu": 1500
+                    "mtu": android_tun_mtu
                 },
                 "sniffing": {
                     "enabled": true,
@@ -1924,8 +2875,6 @@ async fn start_proxy(
             { "tag": "dns-out", "protocol": "dns" }
         ]
     });
-
-    let android_tun_mtu = if vless_link.starts_with("wg://") { 1420 } else { 1500 };
 
     let status = app
         .karin_vpn()
@@ -1972,11 +2921,29 @@ fn redact_diagnostic_logs(content: &str) -> String {
     content
         .lines()
         .map(|line| {
-            if ["vless://", "vmess://", "trojan://", "ss://", "wg://"]
+            let lower = line.to_ascii_lowercase();
+            if [
+                "vless://",
+                "vmess://",
+                "trojan://",
+                "ss://",
+                "wg://",
+                "ovpn://",
+            ]
+            .iter()
+            .any(|needle| lower.contains(needle))
+                || [
+                    "password",
+                    "privatekey",
+                    "private_key",
+                    "presharedkey",
+                    "authorization",
+                    "configjson",
+                ]
                 .iter()
-                .any(|needle| line.contains(needle))
+                .any(|needle| lower.contains(needle))
             {
-                "[REDACTED PROXY URI]".to_string()
+                "[REDACTED SENSITIVE DATA]".to_string()
             } else {
                 line.to_string()
             }
@@ -1996,6 +2963,8 @@ fn export_diagnostics(app: tauri::AppHandle) -> Result<String, String> {
         .map(|duration| duration.as_secs())
         .unwrap_or_default();
 
+    let safe_last_error =
+        redact_diagnostic_logs(&status.last_error.unwrap_or_else(|| "none".to_string()));
     let report = format!(
         "KarinCore Android diagnostics\n\
 ===========================\n\
@@ -2039,7 +3008,7 @@ VPN/Xray logs\n\
         status.tun_fd.is_some(),
         status.app_routing_mode,
         status.app_package_count,
-        status.last_error.unwrap_or_else(|| "none".to_string()),
+        safe_last_error,
         redact_diagnostic_logs(&logs)
     );
 
@@ -2056,7 +3025,8 @@ VPN/Xray logs\n\
             mime_type: "text/plain".to_string(),
         })
         .map(|result| {
-            result.uri
+            result
+                .uri
                 .map(|uri| format!("Сохранено: {}", uri))
                 .unwrap_or_else(|| "Сохранено".to_string())
         })
@@ -2086,10 +3056,7 @@ fn get_installed_apps() -> Result<Vec<InstalledApp>, String> {
 
 #[cfg(target_os = "android")]
 #[tauri::command]
-fn stop_proxy(
-    app: tauri::AppHandle,
-    state: State<'_, ProxyState>,
-) -> Result<String, String> {
+fn stop_proxy(app: tauri::AppHandle, state: State<'_, ProxyState>) -> Result<String, String> {
     if let Ok(mut guard) = state.auth_token.lock() {
         *guard = None;
     }
@@ -2111,7 +3078,8 @@ async fn export_profile(
             mime_type: "application/json".to_string(),
         })
         .map(|result| {
-            result.uri
+            result
+                .uri
                 .map(|uri| format!("Сохранено: {}", uri))
                 .unwrap_or_else(|| "Сохранено".to_string())
         })
@@ -2120,9 +3088,15 @@ async fn export_profile(
 
 #[cfg(target_os = "android")]
 #[tauri::command]
-fn open_browser(app: tauri::AppHandle, url: String) {
+fn open_browser(app: tauri::AppHandle, url: String) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
-    let _ = app.opener().open_url(url, None::<String>);
+    let parsed = Url::parse(&url).map_err(|_| "BROWSER_URL_INVALID".to_string())?;
+    if parsed.scheme() != "https" || parsed.host_str() != Some("github.com") {
+        return Err("BROWSER_URL_FORBIDDEN".into());
+    }
+    app.opener()
+        .open_url(parsed.as_str(), None::<String>)
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(target_os = "android")]
@@ -2138,7 +3112,6 @@ fn maximize_window(_window: tauri::Window) {}
 fn close_window(_window: tauri::Window) {
     // The Activity/WebView lifecycle must not stop the foreground VPN service.
 }
-
 
 #[cfg(target_os = "android")]
 #[tauri::command]
@@ -2215,7 +3188,9 @@ pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_karin_vpn::init())
-        .manage(ProxyState { auth_token: Mutex::new(None) })
+        .manage(ProxyState {
+            auth_token: Mutex::new(None),
+        })
         .invoke_handler(tauri::generate_handler![
             start_proxy,
             stop_proxy,
@@ -2234,6 +3209,8 @@ pub fn run() {
             maximize_window,
             close_window,
             open_browser,
+            save_secure_state,
+            load_secure_state,
             get_runtime_info,
             get_vpn_runtime_status,
             open_android_vpn_settings
@@ -2241,18 +3218,16 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
-    app.run(|_app_handle, event| {
+    app.run(|_app_handle, _event| {
         #[cfg(not(target_os = "android"))]
-        if let RunEvent::ExitRequested { .. } | RunEvent::Exit = event {
+        if let RunEvent::ExitRequested { .. } | RunEvent::Exit = _event {
             let _ = std::process::Command::new("sudo")
                 .args(["/usr/bin/systemctl", "stop", "karin-proxy-daemon.service"])
                 .output();
             let _ = std::process::Command::new("sudo")
-                .args(["/usr/bin/pkill", "-f", "/etc/karin-proxy/openvpn.ovpn"])
+                .args(["-n", "/usr/libexec/karincore-helper", "openvpn-stop"])
                 .output();
-            let _ = std::process::Command::new("sudo")
-                .args(["/usr/bin/cp", "/etc/karin-proxy/resolv.conf.bak", "/etc/resolv.conf"])
-                .output();
+            let _ = run_privileged_helper("resolver-restore", &[]);
         }
     });
 }
@@ -2577,9 +3552,31 @@ mod tests {
         .join("\n");
 
         let redacted = redact_diagnostic_logs(&logs);
-        assert_eq!(redacted.matches("[REDACTED PROXY URI]").count(), 5);
+        assert_eq!(redacted.matches("[REDACTED SENSITIVE DATA]").count(), 5);
         assert!(redacted.ends_with("ordinary status line"));
         assert!(!redacted.contains("private-key"));
         assert!(!redacted.contains("password"));
+    }
+
+    #[test]
+    fn subscription_url_policy_rejects_cleartext_credentials_and_private_hosts() {
+        assert!(validate_subscription_url("https://example.com/sub").is_ok());
+        assert!(validate_subscription_url("http://example.com/sub").is_err());
+        assert!(validate_subscription_url("https://user:pass@example.com/sub").is_err());
+        assert!(validate_subscription_url("https://127.0.0.1/sub").is_err());
+        assert!(validate_subscription_url("https://192.168.1.1/sub").is_err());
+        assert!(validate_subscription_url("https://100.64.0.1/sub").is_err());
+        assert!(validate_subscription_url("https://[fc00::1]/sub").is_err());
+        assert!(validate_subscription_url("https://[fe80::1]/sub").is_err());
+        assert!(validate_subscription_url("https://service.local/sub").is_err());
+    }
+
+    #[test]
+    fn subscription_json_percent_encodes_untrusted_remarks() {
+        let json = r#"{"remarks":"<img src=x onerror=alert(1)>","outbounds":[{"protocol":"vless","settings":{"vnext":[{"address":"example.com","port":443,"users":[{"id":"uuid"}]}]}}]}"#;
+        let result = parse_subscription_content(json).unwrap();
+        assert_eq!(result.links.len(), 1);
+        assert!(!result.links[0].contains('<'));
+        assert!(result.links[0].contains("%3Cimg%20src%3Dx%20onerror%3Dalert%281%29%3E"));
     }
 }

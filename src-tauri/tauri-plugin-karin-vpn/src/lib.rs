@@ -2,9 +2,14 @@ mod error;
 mod models;
 
 pub use error::{Error, Result};
-pub use models::{DeviceInfoResult, ClearLogsResult, InstalledApp, InstalledAppsResult, LogsResult, PrepareResult, FetchTextRequest, FetchTextResult, OpenSettingsResult, SaveDocumentRequest, SaveDocumentResult, StartRequest, VpnStatus};
+pub use models::{
+    ClearLogsResult, DeviceInfoResult, FetchTextRequest, FetchTextResult, InstalledApp,
+    InstalledAppsResult, LogsResult, OpenSettingsResult, PrepareResult, SaveDocumentRequest,
+    SaveDocumentResult, SecureStateRequest, SecureStateResult, SecureStateSaveResult, StartRequest,
+    VpnStatus,
+};
 
-use tauri::{Manager, Runtime, plugin::TauriPlugin};
+use tauri::{plugin::TauriPlugin, Manager, Runtime};
 
 #[cfg(target_os = "android")]
 use tauri::plugin::PluginHandle;
@@ -20,6 +25,30 @@ pub struct KarinVpn<R: Runtime> {
 }
 
 impl<R: Runtime> KarinVpn<R> {
+    #[cfg(target_os = "android")]
+    pub fn save_secure_state(&self, request: SecureStateRequest) -> Result<SecureStateSaveResult> {
+        self.mobile_plugin_handle
+            .run_mobile_plugin("saveSecureState", request)
+            .map_err(Error::from)
+    }
+
+    #[cfg(target_os = "android")]
+    pub fn load_secure_state(&self) -> Result<SecureStateResult> {
+        self.mobile_plugin_handle
+            .run_mobile_plugin("loadSecureState", ())
+            .map_err(Error::from)
+    }
+
+    #[cfg(not(target_os = "android"))]
+    pub fn save_secure_state(&self, _request: SecureStateRequest) -> Result<SecureStateSaveResult> {
+        Err(Error::UnsupportedPlatform)
+    }
+
+    #[cfg(not(target_os = "android"))]
+    pub fn load_secure_state(&self) -> Result<SecureStateResult> {
+        Err(Error::UnsupportedPlatform)
+    }
+
     #[cfg(target_os = "android")]
     pub fn prepare(&self) -> Result<PrepareResult> {
         self.mobile_plugin_handle
@@ -65,7 +94,9 @@ impl<R: Runtime> KarinVpn<R> {
 
     #[cfg(not(target_os = "android"))]
     pub fn logs(&self) -> Result<LogsResult> {
-        Ok(LogsResult { content: String::new() })
+        Ok(LogsResult {
+            content: String::new(),
+        })
     }
 
     #[cfg(target_os = "android")]
@@ -224,6 +255,19 @@ async fn status<R: Runtime>(app: tauri::AppHandle<R>) -> Result<VpnStatus> {
     app.karin_vpn().status()
 }
 
+#[tauri::command]
+async fn save_secure_state<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    request: SecureStateRequest,
+) -> Result<SecureStateSaveResult> {
+    app.karin_vpn().save_secure_state(request)
+}
+
+#[tauri::command]
+async fn load_secure_state<R: Runtime>(app: tauri::AppHandle<R>) -> Result<SecureStateResult> {
+    app.karin_vpn().load_secure_state()
+}
+
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     tauri::plugin::Builder::new("karin-vpn")
         .setup(|app, _api| {
@@ -238,6 +282,20 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![prepare, start, list_apps, logs, clear_logs, save_document, fetch_text, device_info, open_vpn_settings, stop, status])
+        .invoke_handler(tauri::generate_handler![
+            prepare,
+            start,
+            list_apps,
+            logs,
+            clear_logs,
+            save_document,
+            fetch_text,
+            device_info,
+            open_vpn_settings,
+            stop,
+            status,
+            save_secure_state,
+            load_secure_state
+        ])
         .build()
 }

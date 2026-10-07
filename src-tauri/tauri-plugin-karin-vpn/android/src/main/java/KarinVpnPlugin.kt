@@ -12,6 +12,7 @@ import android.provider.Settings
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.net.HttpURLConnection
+import java.net.InetAddress
 import java.net.SocketTimeoutException
 import java.net.URL
 import java.util.concurrent.Executors
@@ -50,11 +51,41 @@ class FetchTextArgs {
     var maxBytes: Long = 8L * 1024L * 1024L
 }
 
+@InvokeArg
+class SecureStateArgs {
+    lateinit var content: String
+}
+
 @TauriPlugin
 class KarinVpnPlugin(private val activity: Activity) : Plugin(activity) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val networkExecutor = Executors.newCachedThreadPool()
     private var pendingDocumentContent: String? = null
+
+    @Command
+    fun saveSecureState(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(SecureStateArgs::class.java)
+            require(args.content.toByteArray(Charsets.UTF_8).size <= MAX_SECURE_STATE_BYTES) {
+                "SECURE_STATE_TOO_LARGE"
+            }
+            SecureStorage(activity).put(SecureStorage.PROFILE_STATE_KEY, args.content)
+            invoke.resolve(JSObject().apply { put("saved", true) })
+        } catch (ex: Exception) {
+            invoke.reject(ex.message ?: "SECURE_STATE_SAVE_FAILED")
+        }
+    }
+
+    @Command
+    fun loadSecureState(invoke: Invoke) {
+        try {
+            invoke.resolve(JSObject().apply {
+                put("content", SecureStorage(activity).get(SecureStorage.PROFILE_STATE_KEY))
+            })
+        } catch (ex: Exception) {
+            invoke.reject(ex.message ?: "SECURE_STATE_LOAD_FAILED")
+        }
+    }
 
     @Command
     fun prepare(invoke: Invoke) {
@@ -314,6 +345,7 @@ class KarinVpnPlugin(private val activity: Activity) : Plugin(activity) {
         var redirects = 0
 
         while (true) {
+            validateSubscriptionUrl(current)
             val connection = (current.openConnection() as HttpURLConnection).apply {
                 instanceFollowRedirects = false
                 connectTimeout = minOf(timeoutMs, 8_000)
@@ -336,6 +368,7 @@ class KarinVpnPlugin(private val activity: Activity) : Plugin(activity) {
                         throw IllegalStateException("SUBSCRIPTION_REDIRECT_LIMIT")
                     }
                     current = URL(current, location)
+                    validateSubscriptionUrl(current)
                     continue
                 }
 
@@ -363,6 +396,31 @@ class KarinVpnPlugin(private val activity: Activity) : Plugin(activity) {
             } finally {
                 connection.disconnect()
             }
+        }
+    }
+
+    private fun validateSubscriptionUrl(url: URL) {
+        require(url.protocol.equals("https", ignoreCase = true)) { "SUBSCRIPTION_HTTPS_REQUIRED" }
+        require(url.userInfo == null) { "SUBSCRIPTION_URL_CREDENTIALS_FORBIDDEN" }
+        val host = url.host.orEmpty().lowercase()
+        require(host.isNotBlank()) { "SUBSCRIPTION_HOST_MISSING" }
+        require(host != "localhost" && !host.endsWith(".localhost") && !host.endsWith(".local")) {
+            "SUBSCRIPTION_PRIVATE_HOST_FORBIDDEN"
+        }
+
+        val addresses = InetAddress.getAllByName(host)
+        require(addresses.isNotEmpty()) { "SUBSCRIPTION_DNS_EMPTY" }
+        addresses.forEach { address ->
+            val bytes = address.address
+            val uniqueLocalV6 = bytes.size == 16 && (bytes[0].toInt() and 0xfe) == 0xfc
+            require(
+                !address.isAnyLocalAddress &&
+                    !address.isLoopbackAddress &&
+                    !address.isLinkLocalAddress &&
+                    !address.isSiteLocalAddress &&
+                    !address.isMulticastAddress &&
+                    !uniqueLocalV6
+            ) { "SUBSCRIPTION_PRIVATE_HOST_FORBIDDEN" }
         }
     }
 
@@ -445,6 +503,7 @@ class KarinVpnPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     companion object {
+        private const val MAX_SECURE_STATE_BYTES = 8 * 1024 * 1024
         private const val POLL_MS = 100L
         private const val START_TIMEOUT_MS = 12_000L
         private const val STOP_TIMEOUT_MS = 5_000L

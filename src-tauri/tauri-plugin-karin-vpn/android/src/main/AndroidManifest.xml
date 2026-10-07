@@ -13,7 +13,9 @@
         </intent>
     </queries>
 
-    <application>
+    <application
+        android:allowBackup="false"
+        android:fullBackupContent="false">
         <service
             android:name="com.vivagushter.karincore.vpn.KarinVpnService"
             android:exported="false"

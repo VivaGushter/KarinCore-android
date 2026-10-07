@@ -2,6 +2,21 @@
 
 All notable Android-port changes are tracked here.
 
+## Unreleased
+
+### Security
+- Moved proxy profiles, subscription URLs and the selected profile from WebView storage into Android Keystore-backed AES-GCM storage, with a one-time legacy migration.
+- Added strict HTML escaping and a restrictive Tauri content-security policy for renderer-controlled content.
+- Restricted subscriptions to HTTPS, blocked private/local literal targets and enforced the same policy across redirects.
+- Replaced writable temporary privileged configuration flows with a fixed root helper that validates Xray, OpenVPN, WireGuard, DNS, route and firewall inputs.
+- Replaced predictable authentication tokens with operating-system CSPRNG output and expanded diagnostics redaction.
+- Disabled Android application backups and restricted external browser navigation to the project repository.
+
+### Reliability
+- Corrected Android TUN MTU propagation, excluded VPN transports from upstream selection and persisted reconnect state securely.
+- Serialized protected-state writes so rapid UI mutations cannot be committed out of order.
+- Added locked dependency metadata, frontend security tests, privileged-helper tests, dependency audits and least-privilege pinned CI actions.
+
 ## [0.1.0-alpha.21] - 2026-10-06
 
 Automated Rust parser and configuration regression coverage.

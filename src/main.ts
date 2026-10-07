@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { translations } from "./i18n";
+import { escapeHtml } from "./security";
 
 // **********************************
 // TYPES & INTERFACES
@@ -29,6 +30,7 @@ interface VpnRuntimeStatus {
     lastError?: string | null;
 }
 interface SubscriptionResult { links: string[]; importedRouting?: Record<ZoneKey, RoutingRule[]>; importedDns?: { domestic?: DnsConfig; remote?: DnsConfig }; }
+interface SensitiveState { groups: ProxyGroup[]; links: ProxyLink[]; selectedProfileUrl: string | null; }
 
 // **********************************
 // STATE MANAGEMENT & LOCAL STORAGE
@@ -44,6 +46,25 @@ function safeParse(key: string, fallback: any): any {
     }
 }
 
+function isProxyLink(value: unknown): value is ProxyLink {
+    if (!value || typeof value !== 'object') return false;
+    const item = value as Partial<ProxyLink>;
+    return typeof item.id === 'string'
+        && typeof item.url === 'string'
+        && typeof item.pinned === 'boolean'
+        && (typeof item.groupId === 'string' || item.groupId === null);
+}
+
+function isProxyGroup(value: unknown): value is ProxyGroup {
+    if (!value || typeof value !== 'object') return false;
+    const item = value as Partial<ProxyGroup>;
+    return typeof item.id === 'string'
+        && typeof item.name === 'string'
+        && typeof item.pinned === 'boolean'
+        && typeof item.isOpen === 'boolean'
+        && (item.sourceUrl === undefined || typeof item.sourceUrl === 'string');
+}
+
 let runtimeInfo: RuntimeInfo = { platform: 'desktop', version: '0.0.0', updateRepo: PROJECT_REPO };
 let nativeVpnRunning = false;
 let nativeVpnStarting = false;
@@ -57,7 +78,7 @@ let lastNativeStatusSignature = '';
 let currentTheme = localStorage.getItem('karin_theme') || 'dark';
 let currentLang = localStorage.getItem('karin_lang') || 'en';
 let activeLink: string | null = sessionStorage.getItem('karin_active_link') || null;
-let selectedProfileUrl: string | null = localStorage.getItem('karin_selected_profile') || null;
+let selectedProfileUrl: string | null = null;
 let allAvailableTags: string[] = [];
 let currentZone: ZoneKey = 'proxy';
 let defaultOutbound: ZoneKey = 'proxy';
@@ -82,16 +103,9 @@ if (savedOutbound === 'direct' || savedOutbound === 'proxy' || savedOutbound ===
     defaultOutbound = savedOutbound;
 }
 
-let appGroups: ProxyGroup[] = safeParse('karin_groups', []);
-if (!Array.isArray(appGroups)) appGroups = [];
-
-let rawLinks = safeParse('karin_links', []);
-if (!Array.isArray(rawLinks)) rawLinks = [];
-let appLinks: ProxyLink[] = rawLinks.map((l: any) => {
-    if (typeof l === 'string') return { id: 'link_' + Date.now() + Math.random(), url: l, pinned: false, groupId: null };
-    if (!l.id) return { id: 'link_' + Date.now() + Math.random(), url: l.url, pinned: l.pinned || false, groupId: null };
-    return l;
-});
+let appGroups: ProxyGroup[] = [];
+let appLinks: ProxyLink[] = [];
+let secureStateSaveQueue: Promise<unknown> = Promise.resolve();
 
 let routingState: Record<ZoneKey, RoutingRule[]> = safeParse('karin_routing', { direct: [], proxy: [], block: [] });
 if (!routingState.direct) routingState.direct = [];
@@ -108,9 +122,57 @@ routeProfiles = routeProfiles.map(p => {
     return p;
 });
 
+async function loadSensitiveState() {
+    let protectedStateReady = false;
+    try {
+        let content = await invoke<string | null>('load_secure_state');
+
+        // One-time migration from versions that stored credentials in WebView storage.
+        if (!content) {
+            const legacyGroups = safeParse('karin_groups', []);
+            const legacyLinks = safeParse('karin_links', []);
+            const legacySelected = localStorage.getItem('karin_selected_profile');
+            if (Array.isArray(legacyGroups) || Array.isArray(legacyLinks) || legacySelected) {
+                content = JSON.stringify({
+                    groups: Array.isArray(legacyGroups) ? legacyGroups : [],
+                    links: Array.isArray(legacyLinks) ? legacyLinks : [],
+                    selectedProfileUrl: legacySelected
+                });
+                await invoke('save_secure_state', { content });
+            }
+        }
+
+        if (content) {
+            const state = JSON.parse(content) as Partial<SensitiveState>;
+            appGroups = Array.isArray(state.groups) ? state.groups.filter(isProxyGroup) : [];
+            appLinks = Array.isArray(state.links) ? state.links.filter(isProxyLink) : [];
+            selectedProfileUrl = typeof state.selectedProfileUrl === 'string' ? state.selectedProfileUrl : null;
+        }
+        protectedStateReady = true;
+    } catch (error) {
+        console.error('Unable to load protected profile state:', error);
+        appGroups = [];
+        appLinks = [];
+        selectedProfileUrl = null;
+    } finally {
+        // Never destroy the only copy when Keystore/app-data persistence failed.
+        if (protectedStateReady) {
+            ['karin_groups', 'karin_links', 'karin_selected_profile']
+                .forEach(key => localStorage.removeItem(key));
+        }
+        localStorage.removeItem('karin_active_link');
+    }
+}
+
 function saveData() {
-    localStorage.setItem('karin_groups', JSON.stringify(appGroups));
-    localStorage.setItem('karin_links', JSON.stringify(appLinks));
+    const content = JSON.stringify({ groups: appGroups, links: appLinks, selectedProfileUrl });
+    // Preserve mutation order even when several UI events save in quick succession.
+    secureStateSaveQueue = secureStateSaveQueue
+        .catch(() => undefined)
+        .then(() => invoke('save_secure_state', { content }))
+        .catch(error => {
+            console.error('Unable to save protected profile state:', error);
+        });
 }
 
 function cleanEmptyGroups() { 
@@ -585,7 +647,7 @@ async function saveNewLink() {
         return;
     }
     
-    if (input.startsWith('http://') || input.startsWith('https://')) {
+    if (input.startsWith('https://')) {
         if(!btnSave) return;
         const originalText = btnSave.innerText; 
         btnSave.innerText = t('btn_saving') || 'Загрузка...'; 
@@ -679,7 +741,6 @@ async function refreshSubscriptionGroup(groupId: string) {
             && activeLink !== selectedProfileUrl
         ) {
             selectedProfileUrl = null;
-            localStorage.removeItem('karin_selected_profile');
         }
 
         appLinks = appLinks.filter(link => link.groupId !== groupId).concat(refreshed);
@@ -746,9 +807,8 @@ async function connectProxy(link: string) {
             nativeVpnReconnecting = false;
             activeLink = link;
             selectedProfileUrl = link;
-            localStorage.setItem('karin_selected_profile', link);
-            localStorage.setItem('karin_active_link', link);
             sessionStorage.setItem('karin_active_link', link); 
+            saveData();
             updateStatusUI(); 
             renderLinks(); 
             typeKarinMessage('karin_connect_ok');
@@ -776,7 +836,6 @@ async function disconnectProxy() {
     nativeVpnCoreRunning = false;
     nativeVpnReconnecting = false;
     activeLink = null;
-    localStorage.removeItem('karin_active_link');
     sessionStorage.removeItem('karin_active_link'); 
     updateStatusUI(); 
     renderLinks(); 
@@ -1056,26 +1115,30 @@ function renderLinkItem(item: ProxyLink) {
     }
 
     const formattedProtocol = formatProxyInfo(item.url);
+    const safeId = escapeHtml(item.id);
+    const safeUrl = escapeHtml(item.url);
+    const safeDisplayName = escapeHtml(displayName);
+    const safeProtocol = escapeHtml(formattedProtocol);
     const pinIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>`;
-    const checkboxHtml = isEditMode ? `<input type="checkbox" class="edit-checkbox" data-id="${item.id}" ${selectedLinks.has(item.id) ? 'checked' : ''}>` : '';
+    const checkboxHtml = isEditMode ? `<input type="checkbox" class="edit-checkbox" data-id="${safeId}" ${selectedLinks.has(item.id) ? 'checked' : ''}>` : '';
     const actionsHtml = isEditMode ? '' : `
-        <button class="btn-menu-dots" data-index="${item.id}">⋮</button>
-        <div class="dropdown-menu" id="menu-${item.id}" style="display:none;">
-          <button class="btn-share" data-url="${item.url}">${t('btn_share')}</button>
-          <button class="btn-pin" data-id="${item.id}">${item.pinned ? t('btn_unpin') : t('btn_pin')}</button>
-          <button class="btn-delete-link danger" style="background: transparent; color: var(--danger);" data-id="${item.id}">${t('btn_delete')}</button>
+        <button class="btn-menu-dots" data-index="${safeId}">⋮</button>
+        <div class="dropdown-menu" id="menu-${safeId}" style="display:none;">
+          <button class="btn-share" data-url="${safeUrl}">${escapeHtml(t('btn_share'))}</button>
+          <button class="btn-pin" data-id="${safeId}">${escapeHtml(item.pinned ? t('btn_unpin') : t('btn_pin'))}</button>
+          <button class="btn-delete-link danger" style="background: transparent; color: var(--danger);" data-id="${safeId}">${escapeHtml(t('btn_delete'))}</button>
         </div>
     `;
 
     return `
-      <div class="link-item ${isSelected ? 'link-item-selected' : ''}" data-select-url="${item.url}" style="${isEditMode ? '' : 'cursor: pointer;'}">
+      <div class="link-item ${isSelected ? 'link-item-selected' : ''}" data-select-url="${safeUrl}" style="${isEditMode ? '' : 'cursor: pointer;'}">
         ${checkboxHtml}
         <div class="link-info">
           <div class="link-name" style="font-size: 14.5px; display: flex; align-items: center; ${isCurrentActive ? 'color: var(--success); font-weight: bold;' : 'font-weight: 500;'}">
-            ${item.pinned && !item.groupId ? pinIcon : ''}${displayName}
+            ${item.pinned && !item.groupId ? pinIcon : ''}${safeDisplayName}
           </div>
           <div class="link-url" style="font-size: 12px; color: var(--text-dim); opacity: 0.95; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; letter-spacing: 0.3px;">
-            ${formattedProtocol}
+            ${safeProtocol}
           </div>
         </div>
         <div class="link-actions">${actionsHtml}</div>
@@ -1106,19 +1169,20 @@ function renderLinks() {
         if (gLinks.length === 0) return ''; 
         const pinIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 6px;"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>`;
         
+        const safeGroupId = escapeHtml(g.id);
         let html = `
-          <div class="group-header" data-id="${g.id}">
+          <div class="group-header" data-id="${safeGroupId}">
               <div style="display: flex; align-items: center; gap: 8px;">
-                  ${isEditMode ? `<input type="checkbox" class="edit-checkbox" data-group-id="${g.id}" ${selectedGroups.has(g.id) ? 'checked' : ''} onclick="event.stopPropagation()">` : ''}
-                  ${g.pinned ? pinIcon : ''} <span>${g.name}</span> <span style="font-size:12px; color:var(--text-dim);">(${gLinks.length})</span>
+                  ${isEditMode ? `<input type="checkbox" class="edit-checkbox" data-group-id="${safeGroupId}" ${selectedGroups.has(g.id) ? 'checked' : ''}>` : ''}
+                  ${g.pinned ? pinIcon : ''} <span>${escapeHtml(g.name)}</span> <span style="font-size:12px; color:var(--text-dim);">(${gLinks.length})</span>
               </div>
               <div style="display:flex; gap:10px; align-items:center;">
                   ${g.sourceUrl && !isEditMode ? `
                     <button
                       type="button"
                       class="btn-refresh-subscription"
-                      data-group-id="${g.id}"
-                      title="${t('subscription_refresh')}"
+                      data-group-id="${safeGroupId}"
+                      title="${escapeHtml(t('subscription_refresh'))}"
                       style="border:none;background:transparent;color:var(--accent);cursor:pointer;font-size:17px;line-height:1;padding:2px 4px;"
                     >↻</button>
                   ` : ''}
@@ -1141,6 +1205,7 @@ function renderLinks() {
     linksContainer.innerHTML = html;
     
     document.querySelectorAll('.edit-checkbox[data-group-id]').forEach(cb => {
+        cb.addEventListener('click', event => event.stopPropagation());
         cb.addEventListener('change', (e) => {
             const gId = (e.target as HTMLInputElement).dataset.groupId!;
             const isChecked = (e.target as HTMLInputElement).checked;
@@ -1159,12 +1224,24 @@ function renderRouting() {
     Object.keys(zones).forEach(key => { 
         const zone = zones[key as keyof typeof zones]; 
         if(zone) { 
-            zone.innerHTML = `<button class="btn-add" data-zone="${key}">+</button>`; 
+            zone.replaceChildren();
+            const addButton = document.createElement('button');
+            addButton.className = 'btn-add';
+            addButton.dataset.zone = key;
+            addButton.textContent = '+';
+            zone.appendChild(addButton);
             if (routingState[key as ZoneKey]) {
                 routingState[key as ZoneKey].forEach((rule: any) => { 
                     const el = document.createElement('div'); 
                     el.className = 'tag-item'; 
-                    el.innerHTML = `${rule.value} <span class="btn-delete-tag" data-tag="${rule.value}" data-zone="${key}" style="pointer-events: auto;">×</span>`; 
+                    el.appendChild(document.createTextNode(`${String(rule.value)} `));
+                    const deleteButton = document.createElement('span');
+                    deleteButton.className = 'btn-delete-tag';
+                    deleteButton.dataset.tag = String(rule.value);
+                    deleteButton.dataset.zone = key;
+                    deleteButton.style.pointerEvents = 'auto';
+                    deleteButton.textContent = '×';
+                    el.appendChild(deleteButton);
                     zone.appendChild(el); 
                 }); 
             }
@@ -1176,22 +1253,25 @@ function renderRouting() {
 function renderRoutingProfiles() {
     const list = document.getElementById('routing-profiles-list');
     if (!list) return;
-    list.innerHTML = '';
+    list.replaceChildren();
     routeProfiles.forEach(p => {
-        list.innerHTML += `
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = `
             <div class="profile-item">
-                <span>${p.name}</span>
+                <span>${escapeHtml(p.name)}</span>
                 <div class="link-actions">
-                    <button class="secondary btn-load-profile" data-id="${p.id}" style="padding: 6px 12px; font-size: 13px;">${t('btn_select')}</button>
-                    <button class="btn-menu-dots btn-route-menu-dots" data-index="${p.id}">⋮</button>
-                    <div class="dropdown-menu" id="route-menu-${p.id}" style="display:none;">
-                        <button class="btn-edit-profile" data-id="${p.id}">${t('btn_rename')}</button>
-                        <button class="btn-export-profile" data-id="${p.id}">${t('btn_share')}</button>
-                        <button class="btn-del-profile danger" style="background: transparent; color: var(--danger);" data-id="${p.id}">${t('btn_delete')}</button>
+                    <button class="secondary btn-load-profile" data-id="${escapeHtml(p.id)}" style="padding: 6px 12px; font-size: 13px;">${escapeHtml(t('btn_select'))}</button>
+                    <button class="btn-menu-dots btn-route-menu-dots" data-index="${escapeHtml(p.id)}">⋮</button>
+                    <div class="dropdown-menu" id="route-menu-${escapeHtml(p.id)}" style="display:none;">
+                        <button class="btn-edit-profile" data-id="${escapeHtml(p.id)}">${escapeHtml(t('btn_rename'))}</button>
+                        <button class="btn-export-profile" data-id="${escapeHtml(p.id)}">${escapeHtml(t('btn_share'))}</button>
+                        <button class="btn-del-profile danger" style="background: transparent; color: var(--danger);" data-id="${escapeHtml(p.id)}">${escapeHtml(t('btn_delete'))}</button>
                     </div>
                 </div>
             </div>
         `;
+        const row = wrapper.firstElementChild;
+        if (row) list.appendChild(row);
     });
 }
 
@@ -1524,14 +1604,12 @@ async function restoreAndroidVpnState() {
 
         const nativeActive = nativeVpnRunning || nativeVpnStarting || nativeVpnCoreRunning || nativeVpnReconnecting;
         if (nativeActive) {
-            const persistedActiveLink = localStorage.getItem('karin_active_link');
-            activeLink = persistedActiveLink || selectedProfileUrl || activeLink;
+            activeLink = selectedProfileUrl || activeLink;
             if (activeLink) {
                 sessionStorage.setItem('karin_active_link', activeLink);
             }
         } else {
             activeLink = null;
-            localStorage.removeItem('karin_active_link');
             sessionStorage.removeItem('karin_active_link');
         }
 
@@ -1583,11 +1661,9 @@ async function pollAndroidVpnState() {
         const nativeActive = nativeVpnRunning || nativeVpnStarting || nativeVpnCoreRunning || nativeVpnReconnecting;
         if (!nativeActive) {
             activeLink = null;
-            localStorage.removeItem('karin_active_link');
             sessionStorage.removeItem('karin_active_link');
         } else if (!activeLink) {
-            const persistedActiveLink = localStorage.getItem('karin_active_link');
-            activeLink = persistedActiveLink || selectedProfileUrl || null;
+            activeLink = selectedProfileUrl || null;
         }
 
         renderAndroidSystemVpnStatus();
@@ -1625,7 +1701,13 @@ async function init() {
         console.debug('Runtime metadata unavailable:', error);
     }
 
+    await loadSensitiveState();
+
     document.documentElement.classList.toggle('platform-android', runtimeInfo.platform === 'android');
+    document.getElementById('btn-close-search-modal')?.addEventListener('click', () => searchModal?.close());
+    document.getElementById('btn-close-route-action-modal')?.addEventListener('click', () => {
+        (document.getElementById('route-action-modal') as HTMLDialogElement | null)?.close();
+    });
     if (androidLogActions) {
         androidLogActions.style.display = runtimeInfo.platform === 'android' ? 'flex' : 'none';
     }
@@ -2106,7 +2188,7 @@ document.addEventListener('click', async (e) => {
     if (selectableItem && !isEditMode && !target.closest('.link-actions')) {
         const url = selectableItem.dataset.selectUrl!;
         selectedProfileUrl = url;
-        localStorage.setItem('karin_selected_profile', url);
+        saveData();
         renderLinks();
         updateHeroProfileName();
         profilesDrawer?.close();
