@@ -2,7 +2,7 @@
   <img src="src-tauri/icons/icon.png" alt="KarinCore" width="160"/>
   <h1>KarinCore Android</h1>
   <p>Android-порт KarinCore на Tauri 2, Rust, Android VpnService и Xray-core.</p>
-  <p><strong>Текущая версия: 0.1.0-alpha.22</strong></p>
+  <p><strong>Текущая версия: 0.1.0-alpha.23</strong></p>
   <p><a href="README.md">English</a></p>
 </div>
 
@@ -12,9 +12,9 @@
 
 В Android-порте сохранены интерфейс на TypeScript/Vite и общая Rust-логика KarinCore: парсинг ссылок, подписки, маршрутизация, DNS и профили. Linux-часть с `sudo`, systemd, `route.sh`, iptables и системным Xray на Android заменена нативным `VpnService`.
 
-Версия `0.1.0-alpha.22` распространяется как arm64 debug APK через GitHub prereleases. Следующий контрольный этап: запуск и проверка на реальном Android-устройстве.
+Версия `0.1.0-alpha.23` распространяется как arm64 debug APK через GitHub prereleases. Следующий контрольный этап: запуск и проверка на реальном Android-устройстве.
 
-## Реализовано к 0.1.0-alpha.22
+## Реализовано к 0.1.0-alpha.23
 
 - мобильная точка входа Tauri 2;
 - Android `VpnService`;
@@ -35,6 +35,7 @@
 - экспорт профилей через системный Android document picker;
 - отдельная мобильная раскладка без desktop titlebar, с safe-area отступами и вертикальной маршрутизацией на узких экранах;
 - мобильный интерфейс удерживает кнопку конфигураций над системной навигацией, адаптирует формы, карточки профилей, логи и страницу «О проекте» к узким и низким экранам и показывает состояние ядра `idle` вместо технического `null`;
+- маршрутизация и настройки на Android разделены на карточки и используют единую прокрутку страницы; история обновлений выводится отдельными блоками версий и пунктами изменений;
 - версия и update checker получают номер релиза из Rust-пакета вместо хардкода во frontend;
 - package visibility для launcher-приложений объявлена явно, чтобы список per-app routing не обрезался на Android 11+;
 - восстановление сети обрабатывает как make-before-break, так и break-before-make сценарии;

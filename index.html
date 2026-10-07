@@ -82,7 +82,7 @@
     </div>
     
     <div class="sidebar-footer" id="sidebar-footer">
-      <div class="app-version-text">v 0.1.0-alpha.22</div>
+      <div class="app-version-text">v 0.1.0-alpha.23</div>
       <div id="update-status" class="update-status"></div>
     </div>
   </div>
@@ -206,10 +206,10 @@
   </div>
 
   <div id="page-routing" class="page-view">
-    <div class="panel links-wrapper">
+    <div class="panel links-wrapper routing-panel">
       
-      <div style="display: flex; justify-content: space-between; align-items: center;" class="header-actions">
-        <h3 style="margin-bottom: 5px;">
+      <div style="display: flex; justify-content: space-between; align-items: center;" class="header-actions routing-header">
+        <h3>
           <span data-i18n="routing_title">Маршрутизация</span> 
           (<span data-i18n="routing_default">По умолчанию:</span> <span id="default-outbound-label" style="color:var(--accent);">Proxy</span>)
         </h3>
@@ -218,15 +218,15 @@
         </button>
       </div>
       
-      <p style="font-size: 12px; color: var(--text-dim); margin-top: 10px; margin-bottom: 15px;" data-i18n="routing_hint">
+      <p class="section-description" data-i18n="routing_hint">
         Перетаскивайте колонки для изменения приоритета (слева направо). Кликните на фон, чтобы сделать маршрутом по умолчанию.
       </p>
       
-      <div class="links-list" style="padding-bottom: 30px;">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; background: var(--base-crust); padding: 12px; border-radius: 8px; border: 1px solid var(--border-color);">
-          <div style="font-size: 13px;">
-            <div style="color: var(--text-color); font-weight: 500;" data-i18n="routing_server_ip">Проксировать IP сервера</div>
-            <div style="color: var(--text-dim); font-size: 11px; margin-top: 4px;" data-i18n="routing_server_ip_desc">Снимает системный bypass. Включайте для проксирования сервера, на котором расположен VPN.</div>
+      <div class="links-list routing-content" style="padding-bottom: 30px;">
+        <div class="setting-card routing-option-card">
+          <div class="setting-card-copy">
+            <div class="setting-card-title" data-i18n="routing_server_ip">Проксировать IP сервера</div>
+            <div class="setting-card-description" data-i18n="routing_server_ip_desc">Снимает системный bypass. Включайте для проксирования сервера, на котором расположен VPN.</div>
           </div>
           <label class="switch">
             <input type="checkbox" id="toggle-server-proxy">
@@ -234,10 +234,10 @@
           </label>
         </div>
 
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; background: var(--base-crust); padding: 12px; border-radius: 8px; border: 1px solid var(--border-color);">
-          <div style="font-size: 13px;">
-            <div style="color: var(--text-color); font-weight: 500;" data-i18n="routing_proxy_lan">Проксировать локальную сеть (LAN)</div>
-            <div style="color: var(--text-dim); font-size: 11px; margin-top: 4px;" data-i18n="routing_proxy_lan_desc">Направляет подсети 10.x, 192.168.x и 172.x через прокси. По умолчанию отключено (прямой доступ).</div>
+        <div class="setting-card routing-option-card">
+          <div class="setting-card-copy">
+            <div class="setting-card-title" data-i18n="routing_proxy_lan">Проксировать локальную сеть (LAN)</div>
+            <div class="setting-card-description" data-i18n="routing_proxy_lan_desc">Направляет подсети 10.x, 192.168.x и 172.x через прокси. По умолчанию отключено (прямой доступ).</div>
           </div>
           <label class="switch">
             <input type="checkbox" id="toggle-proxy-lan">
@@ -330,10 +330,10 @@
   </div>
 
   <div id="page-settings" class="page-view">
-    <div class="panel">
-      <h3 data-i18n="settings_title">Настройки</h3>
-      <div class="settings-row" style="margin-top: 15px; display: flex; align-items: center; gap: 15px;">
-        <label style="font-size: 14px;" data-i18n="settings_lang">Язык интерфейса:</label>
+    <div class="panel settings-panel">
+      <h3 class="settings-title" data-i18n="settings_title">Настройки</h3>
+      <div class="settings-row setting-card settings-language-row">
+        <label class="setting-card-title" data-i18n="settings_lang">Язык интерфейса:</label>
         
         <div style="position: relative; flex: 1;">
           <div id="lang-select-btn" class="custom-select-btn">
@@ -350,39 +350,39 @@
         </div>
         
       </div>
-      <div style="margin-top: 15px; display: flex; align-items: center; gap: 15px;">
-        <label id="theme-label" style="font-size: 14px;" data-i18n="theme_dark">Темная тема:</label>
+      <div class="settings-row setting-card">
+        <label id="theme-label" class="setting-card-title" data-i18n="theme_dark">Темная тема:</label>
         <label class="switch">
           <input type="checkbox" id="theme-toggle">
           <span class="slider"></span>
         </label>
       </div>
-      <div style="margin-top: 15px; display: flex; align-items: center; gap: 15px;">
-        <label style="font-size: 14px;" data-i18n="settings_show_karin">Сообщения Карин:</label>
+      <div class="settings-row setting-card">
+        <label class="setting-card-title" data-i18n="settings_show_karin">Сообщения Карин:</label>
         <label class="switch">
           <input type="checkbox" id="karin-assistant-toggle" checked>
           <span class="slider"></span>
         </label>
       </div>
-      <div id="desktop-kill-switch-section">
-        <div style="margin-top: 15px; display: flex; align-items: center; gap: 15px;">
-          <label style="font-size: 14px;" data-i18n="settings_kill_switch">Kill Switch:</label>
+      <div id="desktop-kill-switch-section" class="setting-card settings-detail-card">
+        <div class="settings-row">
+          <label class="setting-card-title" data-i18n="settings_kill_switch">Kill Switch:</label>
           <label class="switch">
             <input type="checkbox" id="kill-switch-toggle">
             <span class="slider"></span>
           </label>
         </div>
-        <div style="margin-top: 4px; font-size: 11px; color: var(--text-dim);" data-i18n="settings_kill_switch_note">Блокирует весь трафик, если туннель неожиданно оборвётся.</div>
+        <div class="setting-card-description" data-i18n="settings_kill_switch_note">Блокирует весь трафик, если туннель неожиданно оборвётся.</div>
       </div>
-      <div id="android-system-vpn-section" style="display:none; margin-top:18px; padding:12px; border:1px solid var(--border-color); border-radius:8px; background:var(--base-crust);">
-        <div style="font-size:14px; font-weight:600;" data-i18n="settings_android_kill_switch">Android Kill Switch</div>
-        <div style="margin-top:5px; font-size:11px; color:var(--text-dim);" data-i18n="settings_android_kill_switch_note">Use Android Always-on VPN and Block connections without VPN for system-level protection.</div>
+      <div id="android-system-vpn-section" class="setting-card settings-detail-card" style="display:none;">
+        <div class="setting-card-title" data-i18n="settings_android_kill_switch">Android Kill Switch</div>
+        <div class="setting-card-description" data-i18n="settings_android_kill_switch_note">Use Android Always-on VPN and Block connections without VPN for system-level protection.</div>
         <div id="android-system-vpn-status" style="margin-top:8px; font-size:11px; color:var(--text-dim);"></div>
         <button id="android-vpn-settings-btn" class="small-btn" type="button" style="margin-top:10px;" data-i18n="settings_android_open_vpn">Open VPN settings</button>
       </div>
-      <div id="android-app-routing-section" style="display:none; margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--border-color);">
-        <div style="font-size: 14px; font-weight: 600;" data-i18n="settings_app_routing_title">Per-app VPN</div>
-        <div style="margin-top: 4px; font-size: 11px; color: var(--text-dim);" data-i18n="settings_app_routing_desc">Choose which Android applications use the VPN tunnel.</div>
+      <div id="android-app-routing-section" class="setting-card settings-detail-card" style="display:none;">
+        <div class="setting-card-title" data-i18n="settings_app_routing_title">Per-app VPN</div>
+        <div class="setting-card-description" data-i18n="settings_app_routing_desc">Choose which Android applications use the VPN tunnel.</div>
         <div class="app-routing-controls" style="display:flex; gap:10px; align-items:center; margin-top:12px;">
           <select id="android-app-routing-mode" style="flex:1;">
             <option value="all" data-i18n="settings_app_routing_all">All apps</option>

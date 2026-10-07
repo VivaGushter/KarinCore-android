@@ -2,7 +2,7 @@
   <img src="src-tauri/icons/icon.png" alt="KarinCore" width="160"/>
   <h1>KarinCore Android</h1>
   <p>Android port of KarinCore powered by Tauri 2, Rust, Android VpnService and Xray-core.</p>
-  <p><strong>Current version: 0.1.0-alpha.22</strong></p>
+  <p><strong>Current version: 0.1.0-alpha.23</strong></p>
   <p><a href="README-ru.md">Русская версия</a></p>
 </div>
 
@@ -12,9 +12,9 @@ This repository is an experimental Android port of [detestern/KarinCore](https:/
 
 The shared KarinCore TypeScript UI and Rust parsing/routing logic are retained. Linux-specific tunnel setup is replaced on Android by a native `VpnService` bridge and Xray TUN integration.
 
-Version `0.1.0-alpha.22` is distributed as an arm64 debug APK through GitHub prereleases. Real-device runtime validation is the next verification step.
+Version `0.1.0-alpha.23` is distributed as an arm64 debug APK through GitHub prereleases. Real-device runtime validation is the next verification step.
 
-## Implemented through 0.1.0-alpha.22
+## Implemented through 0.1.0-alpha.23
 
 - Tauri 2 mobile entry point.
 - Native Android `VpnService`.
@@ -35,6 +35,7 @@ Version `0.1.0-alpha.22` is distributed as an arm64 debug APK through GitHub pre
 - Android document picker export for routing profiles.
 - Android-specific mobile layout with desktop titlebar removed, safe-area handling and narrow-screen routing layout.
 - The mobile interface keeps the configuration drawer control above the system navigation area, adapts forms, profile cards, logs and the About page to narrow or short screens, and shows an explicit idle core state instead of a technical `null` value.
+- Android routing and settings use separated cards and one page-level scroll area; release history is rendered as distinct version blocks with readable change items.
 - Runtime version/update metadata comes from the Rust package version instead of frontend hardcoded values.
 - Android package-visibility query explicitly exposes launcher applications to the per-app selector on Android 11+.
 - Network recovery handles both make-before-break and break-before-make transitions.

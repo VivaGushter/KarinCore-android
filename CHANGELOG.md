@@ -4,6 +4,17 @@ All notable Android-port changes are tracked here.
 
 ## Unreleased
 
+## [0.1.0-alpha.23] - 2026-10-07
+
+Mobile routing, settings and release-history layout repair.
+
+### Fixed
+- Replaced the nested half-screen routing scroller with one page-level Android scroll area.
+- Rebuilt routing options and settings as separated cards with non-shrinking, right-aligned switches.
+- Forced Android route priority columns and DNS editors into a stable single-column flow.
+- Constrained the About-page identity image and removed stretched justified mobile text.
+- Parsed patch notes into separate version cards and bullet items instead of one continuous text block.
+
 ## [0.1.0-alpha.22] - 2026-10-07
 
 Android mobile interface stabilization and release hardening.

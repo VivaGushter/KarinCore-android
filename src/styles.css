@@ -140,6 +140,7 @@ select {
     display: inline-block;
     width: 40px;
     height: 20px;
+    flex: 0 0 40px;
 }
 
 .switch input {
@@ -752,6 +753,85 @@ button.danger {
     margin-bottom: 20px;
 }
 
+.routing-header h3 {
+    margin: 0;
+    line-height: 1.35;
+}
+
+.section-description {
+    margin: 14px 0 18px;
+    color: var(--text-dim);
+    font-size: 12px;
+    line-height: 1.55;
+}
+
+.setting-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--base-crust);
+}
+
+.setting-card-copy {
+    min-width: 0;
+    flex: 1;
+}
+
+.setting-card-title {
+    color: var(--text-color);
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.35;
+}
+
+.setting-card-description {
+    margin-top: 6px;
+    color: var(--text-dim);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.routing-content {
+    gap: 12px;
+}
+
+.routing-option-card {
+    flex-shrink: 0;
+}
+
+.settings-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.settings-title {
+    margin-bottom: 2px;
+}
+
+.settings-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.settings-language-row > div {
+    min-width: 0;
+    flex: 1;
+}
+
+.settings-detail-card {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    margin: 0;
+}
+
 .route-column {
     background-color: var(--base-mantle);
     padding: 14px;
@@ -1130,6 +1210,46 @@ button.danger {
     overflow: hidden;
 }
 
+.about-identity {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+}
+
+.about-logo {
+    width: 90px;
+    height: 90px;
+    flex: 0 0 90px;
+    border: 2px solid var(--accent);
+    border-radius: 16px;
+    object-fit: cover;
+    box-shadow: 0 0 15px rgba(203, 166, 247, 0.15);
+}
+
+.about-identity-copy {
+    min-width: 0;
+}
+
+.about-identity-copy h2 {
+    margin: 0;
+    color: var(--accent);
+    font-size: 26px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+.about-version {
+    margin-top: 4px;
+    color: var(--success);
+    font-family: monospace;
+    font-size: 13px;
+    overflow-wrap: anywhere;
+}
+
 #about-info-panel {
     flex: 1;
     height: 100%;
@@ -1158,7 +1278,50 @@ button.danger {
     flex: 1;
     overflow-y: auto;
     padding-right: 10px;
+    padding-bottom: 30px;
     box-sizing: border-box;
+    color: var(--text-dim);
+    font-size: 13px;
+    line-height: 1.55;
+}
+
+.patch-release {
+    padding: 13px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--base-crust);
+}
+
+.patch-release + .patch-release {
+    margin-top: 12px;
+}
+
+.patch-release-title {
+    margin: 0 0 10px;
+    color: var(--accent);
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+.patch-release-items {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.patch-release-item {
+    position: relative;
+    padding-left: 14px;
+    color: var(--text-color);
+    line-height: 1.55;
+    overflow-wrap: anywhere;
+}
+
+.patch-release-item::before {
+    position: absolute;
+    left: 0;
+    color: var(--accent);
+    content: '•';
 }
 
 .copyable-item {
@@ -1395,26 +1558,88 @@ dialog::backdrop {
     overflow-y: auto;
 }
 
+.platform-android #page-routing,
+.platform-android #page-settings,
+.platform-android #page-about {
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+}
+
+.platform-android .routing-panel,
+.platform-android .settings-panel {
+    flex: none;
+    min-height: min-content;
+    margin-bottom: 0;
+    overflow: visible;
+}
+
+.platform-android .routing-content {
+    flex: none;
+    margin-top: 0;
+    padding-right: 0;
+    overflow: visible;
+}
+
+.platform-android #routing-grid {
+    flex-direction: column !important;
+    gap: 10px !important;
+}
+
+.platform-android #routing-grid .routing-arrow {
+    min-height: 20px;
+    transform: rotate(90deg);
+}
+
+.platform-android .route-column {
+    width: 100%;
+    min-width: 100% !important;
+    flex: none !important;
+}
+
+.platform-android .dns-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+}
+
+.platform-android .about-page-container {
+    height: auto;
+    flex-direction: column;
+    overflow: visible;
+}
+
+.platform-android #about-info-panel,
+.platform-android #about-patch-panel {
+    width: 100%;
+    height: auto;
+    flex: none;
+    overflow: visible;
+}
+
+.platform-android .tab-scroll-content,
+.platform-android .patch-scroll-area {
+    padding-right: 0;
+    overflow: visible;
+}
+
+.platform-android .about-identity {
+    gap: 14px;
+}
+
+.platform-android .about-logo {
+    width: 72px !important;
+    height: 72px !important;
+    flex-basis: 72px;
+}
+
+.platform-android .about-identity-copy h2 {
+    font-size: 22px;
+}
+
+.platform-android #about-info-panel p,
+.platform-android #about-info-panel div[style*="text-align: justify"] {
+    text-align: left !important;
+}
+
 @media (max-width: 720px) {
-    .platform-android #routing-grid {
-        flex-direction: column !important;
-        gap: 8px !important;
-    }
-
-    .platform-android #routing-grid .routing-arrow {
-        transform: rotate(90deg);
-        min-height: 18px;
-    }
-
-    .platform-android .route-column {
-        width: 100%;
-        min-width: 100% !important;
-    }
-
-    .platform-android .dns-grid {
-        grid-template-columns: 1fr !important;
-    }
-
     .platform-android .panel {
         padding: 14px;
     }
@@ -1430,26 +1655,6 @@ dialog::backdrop {
 
     .platform-android .input-group > button {
         width: 100%;
-    }
-
-    .platform-android .about-page-container {
-        flex-direction: column;
-        height: auto;
-        overflow: visible;
-    }
-
-    .platform-android #about-info-panel,
-    .platform-android #about-patch-panel {
-        width: 100%;
-        height: auto;
-        flex: none;
-        overflow: visible;
-    }
-
-    .platform-android .tab-scroll-content,
-    .platform-android .patch-scroll-area {
-        overflow: visible !important;
-        padding-right: 0 !important;
     }
 
     .platform-android .settings-row,
@@ -1470,6 +1675,11 @@ dialog::backdrop {
 
     .platform-android .app-routing-controls > button {
         flex: 1 1 150px;
+    }
+
+    .platform-android .settings-language-row {
+        align-items: stretch;
+        flex-direction: column;
     }
 
     .platform-android .link-item,

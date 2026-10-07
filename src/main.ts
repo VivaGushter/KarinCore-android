@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { translations } from "./i18n";
 import { escapeHtml } from "./security";
-import { DISCONNECTED_CORE_LABEL } from "./ui";
+import { DISCONNECTED_CORE_LABEL, renderPatchNotes } from "./ui";
 
 // **********************************
 // TYPES & INTERFACES
@@ -1353,11 +1353,11 @@ function renderAboutPage() {
 
     if (infoPanel) {
         infoPanel.innerHTML = `
-            <div style="display: flex; gap: 20px; align-items: center; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid var(--border-color); flex-shrink: 0;">
-                <img src="${KARIN_ICON_URL}" alt="KarinCore" style="width: 90px; height: 90px; border-radius: 16px; object-fit: cover; border: 2px solid var(--accent); box-shadow: 0 0 15px rgba(203, 166, 247, 0.15);">
-                <div>
-                    <h2 style="margin: 0; color: var(--accent); font-weight: 600; font-size: 26px; letter-spacing: 0.5px;">KarinCore</h2>
-                    <div style="font-size: 13px; color: var(--success); margin-top: 4px; font-family: monospace;">KarinCore Android v${runtimeInfo.version}</div>
+            <div class="about-identity">
+                <img class="about-logo" src="${KARIN_ICON_URL}" alt="KarinCore">
+                <div class="about-identity-copy">
+                    <h2>KarinCore</h2>
+                    <div class="about-version">KarinCore Android v${runtimeInfo.version}</div>
                 </div>
             </div>
             
@@ -1434,7 +1434,7 @@ function renderAboutPage() {
                 ${t('patch_notes')}
             </h3>
             
-            <div class="patch-scroll-area" style="overflow-y: auto; flex: 1; padding-right: 10px; font-size: 13px; color: var(--text-dim); line-height: 1.6; white-space: pre-wrap; padding-bottom: 30px;">${t('about_text_2')}</div>
+            <div class="patch-scroll-area">${renderPatchNotes(t('about_text_2'))}</div>
         `;
     }
 }
