@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { translations } from "./i18n";
 import { escapeHtml } from "./security";
+import { DISCONNECTED_CORE_LABEL } from "./ui";
 
 // **********************************
 // TYPES & INTERFACES
@@ -1025,7 +1026,7 @@ function updateStatusUI() {
     const nowConnected = nativeVpnRunning || nativeVpnStarting || nativeVpnReconnecting || !!activeLink;
     heroCircle?.classList.toggle('connected', nowConnected);
     if (wasConnected !== nowConnected) {
-        typeHeroCoreText(nowConnected ? 'connect' : 'null');
+        typeHeroCoreText(nowConnected ? 'connect' : DISCONNECTED_CORE_LABEL);
     }
     updateHeroProfileName();
     if (nowConnected) {

@@ -121,6 +121,10 @@ select:focus {
     border-color: var(--accent);
 }
 
+input[type="file"][hidden] {
+    display: none !important;
+}
+
 select {
     appearance: none;
     -webkit-appearance: none;
@@ -1162,6 +1166,7 @@ button.danger {
     transition: opacity 0.2s, color 0.2s;
     text-decoration: underline dashed;
     text-underline-offset: 4px;
+    overflow-wrap: anywhere;
 }
 
 .copyable-item:hover {
@@ -1197,6 +1202,8 @@ button.danger {
 
 .karin-message {
     color: var(--accent);
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 
 .karin-cursor {
@@ -1304,6 +1311,7 @@ dialog::backdrop {
 
 .platform-android body {
     padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
+    padding-top: max(12px, env(safe-area-inset-top)) !important;
     gap: 12px;
     height: 100dvh;
     min-height: 100dvh;
@@ -1341,6 +1349,7 @@ dialog::backdrop {
 
 .platform-android #page-main {
     overflow: hidden;
+    padding-bottom: max(14px, env(safe-area-inset-bottom));
 }
 
 .platform-android .karin-console {
@@ -1352,8 +1361,8 @@ dialog::backdrop {
 }
 
 .platform-android .hero-circle {
-    width: min(78vw, 340px);
-    height: min(78vw, 340px);
+    width: min(78vw, 34dvh, 340px);
+    height: min(78vw, 34dvh, 340px);
 }
 
 .platform-android .hero-circle svg {
@@ -1364,7 +1373,19 @@ dialog::backdrop {
 .platform-android .profiles-drawer {
     width: min(92vw, 440px);
     max-width: 92vw;
-    padding-bottom: env(safe-area-inset-bottom);
+    padding-top: max(20px, env(safe-area-inset-top));
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+}
+
+.platform-android #btn-menu {
+    width: 44px;
+    height: 44px;
+}
+
+.platform-android .profiles-drawer-trigger {
+    min-height: 44px;
+    flex-shrink: 0;
+    margin: 0 auto max(10px, env(safe-area-inset-bottom));
 }
 
 .platform-android dialog {
@@ -1403,6 +1424,64 @@ dialog::backdrop {
         gap: 10px;
     }
 
+    .platform-android .input-group {
+        flex-direction: column;
+    }
+
+    .platform-android .input-group > button {
+        width: 100%;
+    }
+
+    .platform-android .about-page-container {
+        flex-direction: column;
+        height: auto;
+        overflow: visible;
+    }
+
+    .platform-android #about-info-panel,
+    .platform-android #about-patch-panel {
+        width: 100%;
+        height: auto;
+        flex: none;
+        overflow: visible;
+    }
+
+    .platform-android .tab-scroll-content,
+    .platform-android .patch-scroll-area {
+        overflow: visible !important;
+        padding-right: 0 !important;
+    }
+
+    .platform-android .settings-row,
+    .platform-android .app-routing-controls,
+    .platform-android .logs-header,
+    .platform-android .profiles-drawer-header {
+        flex-wrap: wrap;
+    }
+
+    .platform-android .settings-row > div,
+    .platform-android .app-routing-controls > select {
+        min-width: 0;
+    }
+
+    .platform-android .app-routing-controls > select {
+        flex-basis: 180px !important;
+    }
+
+    .platform-android .app-routing-controls > button {
+        flex: 1 1 150px;
+    }
+
+    .platform-android .link-item,
+    .platform-android .profile-item,
+    .platform-android .edit-bar {
+        flex-wrap: wrap;
+    }
+
+    .platform-android .link-actions {
+        margin-left: auto;
+    }
+
     .platform-android .karin-console {
         font-size: 11px;
         min-height: 38px;
@@ -1416,8 +1495,8 @@ dialog::backdrop {
 
 @media (max-height: 760px) {
     .platform-android .hero-circle {
-        width: min(58vh, 300px);
-        height: min(58vh, 300px);
+        width: min(68vw, 34dvh, 300px);
+        height: min(68vw, 34dvh, 300px);
     }
 
     .platform-android .hero-meta {

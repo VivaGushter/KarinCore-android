@@ -17,6 +17,11 @@ All notable Android-port changes are tracked here.
 - Serialized protected-state writes so rapid UI mutations cannot be committed out of order.
 - Added locked dependency metadata, frontend security tests, privileged-helper tests, dependency audits and least-privilege pinned CI actions.
 
+### Fixed
+- Corrected Android safe-area padding and kept the configuration drawer control clear of system navigation on short displays.
+- Prevented native file inputs from leaking into the mobile layout and replaced the disconnected core's technical `null` label with `idle`.
+- Added narrow-screen wrapping for forms, profile actions, log controls and long About-page identifiers, and switched the About page to a scrollable single-column layout on phones.
+
 ### Documentation
 - Added a bilingual privacy policy covering local storage, configured network services, diagnostics, permissions and data deletion.
 - Added compatibility, known-limitations and upgrade guides, including the debug-to-production signing transition.

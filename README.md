@@ -34,6 +34,7 @@ Version `0.1.0-alpha.21` is validated by a complete arm64 debug APK build in Git
 - Android-native VPN/Xray event log buffer is exposed through the existing Logs tab, including startup, errors, app-routing state, handovers and Xray status callbacks.
 - Android document picker export for routing profiles.
 - Android-specific mobile layout with desktop titlebar removed, safe-area handling and narrow-screen routing layout.
+- The mobile interface keeps the configuration drawer control above the system navigation area, adapts forms, profile cards, logs and the About page to narrow or short screens, and shows an explicit idle core state instead of a technical `null` value.
 - Runtime version/update metadata comes from the Rust package version instead of frontend hardcoded values.
 - Android package-visibility query explicitly exposes launcher applications to the per-app selector on Android 11+.
 - Network recovery handles both make-before-break and break-before-make transitions.
@@ -48,7 +49,7 @@ Version `0.1.0-alpha.21` is validated by a complete arm64 debug APK build in Git
 - Android uses Rustls for `reqwest`; the desktop path keeps the upstream native TLS setup.
 - Logs page includes a VPN self-test that checks native service state, Xray state, TUN presence, forced proxy-path HTTPS/DNS and external IP through the active proxy.
 
-Not implemented yet on Android: OpenVPN chaining and additional real-device UI/runtime polish. Always-on/lockdown, IPv6 and OEM-specific behavior still require real-device validation.
+Not implemented yet on Android: OpenVPN chaining and additional real-device runtime validation. Always-on/lockdown, IPv6 and OEM-specific behavior still require real-device validation.
 
 ## Release documentation
 

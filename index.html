@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>KarinCore</title>
   <link rel="stylesheet" href="/src/styles.css">
   <style>
@@ -134,7 +134,7 @@
 
           <circle id="core-glow-ring" cx="160" cy="160" r="86"/>
           <circle id="core-ring" cx="160" cy="160" r="78"/>
-          <text id="hero-core-text" x="160" y="166" text-anchor="middle">[ ~$ null ]</text>
+          <text id="hero-core-text" x="160" y="166" text-anchor="middle">[ ~$ idle ]</text>
         </svg>
       </button>
       <div id="status-text" class="status-inactive" data-i18n="status_inactive">Отключено</div>
@@ -156,7 +156,7 @@
     <div id="profiles-drawer-overlay" class="profiles-drawer-overlay"></div>
     <div id="profiles-drawer" class="profiles-drawer">
       <div class="links-wrapper" style="height: 100%; margin: 0;">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div class="profiles-drawer-header" style="display: flex; justify-content: space-between; align-items: center;">
           <h3 data-i18n="config_title" style="margin: 0;">Конфигурации</h3>
           <div style="display: flex; gap: 15px; align-items: center;">
             <button id="btn-import-file" style="background: transparent; border: none; cursor: pointer; padding: 0; color: var(--text-color);" title="Импорт конфигурации (.ovpn, .conf)">
@@ -309,7 +309,7 @@
 
   <div id="page-logs" class="page-view">
     <div class="panel links-wrapper">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+      <div class="logs-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
         <h3 style="margin: 0;" data-i18n="logs_title">Live Логи Xray</h3>
         <div style="display: flex; align-items: center; gap: 10px;">
           <label class="switch">
@@ -332,7 +332,7 @@
   <div id="page-settings" class="page-view">
     <div class="panel">
       <h3 data-i18n="settings_title">Настройки</h3>
-      <div style="margin-top: 15px; display: flex; align-items: center; gap: 15px;">
+      <div class="settings-row" style="margin-top: 15px; display: flex; align-items: center; gap: 15px;">
         <label style="font-size: 14px;" data-i18n="settings_lang">Язык интерфейса:</label>
         
         <div style="position: relative; flex: 1;">
@@ -383,7 +383,7 @@
       <div id="android-app-routing-section" style="display:none; margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--border-color);">
         <div style="font-size: 14px; font-weight: 600;" data-i18n="settings_app_routing_title">Per-app VPN</div>
         <div style="margin-top: 4px; font-size: 11px; color: var(--text-dim);" data-i18n="settings_app_routing_desc">Choose which Android applications use the VPN tunnel.</div>
-        <div style="display:flex; gap:10px; align-items:center; margin-top:12px;">
+        <div class="app-routing-controls" style="display:flex; gap:10px; align-items:center; margin-top:12px;">
           <select id="android-app-routing-mode" style="flex:1;">
             <option value="all" data-i18n="settings_app_routing_all">All apps</option>
             <option value="allowlist" data-i18n="settings_app_routing_allowlist">Only selected</option>
@@ -444,9 +444,9 @@
       <button id="btn-route-import" class="secondary" data-i18n="route_import">Импортировать из файла</button>
       <button id="btn-close-route-action-modal" class="secondary" data-i18n="btn_cancel">Отмена</button>
     </div>
-    <input type="file" id="route-file-input" accept=".json" style="display: none;">
+    <input type="file" id="route-file-input" accept=".json" style="display: none;" hidden>
   </dialog>
-  <input type="file" id="import-file-input" accept=".ovpn,.conf" style="display: none;">
+  <input type="file" id="import-file-input" accept=".ovpn,.conf" style="display: none;" hidden>
 
 </body>
 </html>
