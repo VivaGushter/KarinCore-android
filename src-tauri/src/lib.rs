@@ -498,12 +498,16 @@ fn parse_v2raytun_routing_header(header: &str) -> Result<Value, String> {
 
     let routing: Value = serde_json::from_str(&json_text)
         .map_err(|e| format!("SUBSCRIPTION_ROUTING_INVALID: {e}"))?;
-    convert_routing_to_zones(&routing, &[]).ok_or_else(|| {
+    convert_routing_to_zones(&routing, &[], true).ok_or_else(|| {
         "SUBSCRIPTION_ROUTING_UNSUPPORTED: routing profile has no supported Direct, Proxy or Block rules".to_string()
     })
 }
 
-fn convert_routing_to_zones(routing: &Value, outbounds: &[Value]) -> Option<Value> {
+fn convert_routing_to_zones(
+    routing: &Value,
+    outbounds: &[Value],
+    preserve_provider_config: bool,
+) -> Option<Value> {
     let rules = routing.get("rules").and_then(|v| v.as_array())?;
     let mut zones = serde_json::Map::new();
     zones.insert("direct".to_string(), json!([]));
@@ -564,12 +568,14 @@ fn convert_routing_to_zones(routing: &Value, outbounds: &[Value]) -> Option<Valu
     }
 
     if found_any {
-        zones.insert("_providerRules".to_string(), Value::Array(provider_rules));
-        if let Some(value) = routing.get("domainStrategy").and_then(Value::as_str) {
-            zones.insert("_domainStrategy".to_string(), json!(value));
-        }
-        if let Some(value) = routing.get("domainMatcher").and_then(Value::as_str) {
-            zones.insert("_domainMatcher".to_string(), json!(value));
+        if preserve_provider_config {
+            zones.insert("_providerRules".to_string(), Value::Array(provider_rules));
+            if let Some(value) = routing.get("domainStrategy").and_then(Value::as_str) {
+                zones.insert("_domainStrategy".to_string(), json!(value));
+            }
+            if let Some(value) = routing.get("domainMatcher").and_then(Value::as_str) {
+                zones.insert("_domainMatcher".to_string(), json!(value));
+            }
         }
         Some(Value::Object(zones))
     } else {
@@ -1712,7 +1718,9 @@ fn parse_subscription_content_with_routing(
 
                 if out_routing.is_none() {
                     if let Some(routing) = item.get("routing") {
-                        if let Some(converted) = convert_routing_to_zones(routing, &outbounds_arr) {
+                        if let Some(converted) =
+                            convert_routing_to_zones(routing, &outbounds_arr, false)
+                        {
                             *out_routing = Some(converted);
                         }
                     }
@@ -3495,7 +3503,7 @@ mod tests {
         });
 
         assert_eq!(
-            convert_routing_to_zones(&routing, &outbounds),
+            convert_routing_to_zones(&routing, &outbounds, false),
             Some(json!({
                 "direct": [
                     { "type": "geosite", "value": "private" },
@@ -3674,6 +3682,8 @@ mod tests {
             imported["block"],
             json!([{ "type": "geosite", "value": "category-ads-all" }])
         );
+        assert_eq!(imported["_domainStrategy"], "AsIs");
+        assert_eq!(imported["_domainMatcher"], "hybrid");
 
         let xray_rules = build_xray_rules(
             &imported,
@@ -3689,6 +3699,14 @@ mod tests {
             })
         );
         assert_eq!(xray_rules[1]["outboundTag"], "block");
+
+        let runtime = build_runtime_routing(
+            &imported,
+            "IPIfNonMatch",
+            xray_rules.as_array().unwrap().clone(),
+        );
+        assert_eq!(runtime["domainStrategy"], "AsIs");
+        assert_eq!(runtime["domainMatcher"], "hybrid");
     }
 
     #[test]
