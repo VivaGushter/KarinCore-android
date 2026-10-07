@@ -124,6 +124,8 @@ pub struct FetchTextResult {
     pub status: u16,
     pub final_url: String,
     pub content: String,
+    #[serde(default)]
+    pub routing: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

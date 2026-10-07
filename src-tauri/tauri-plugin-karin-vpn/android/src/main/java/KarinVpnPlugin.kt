@@ -319,6 +319,7 @@ class KarinVpnPlugin(private val activity: Activity) : Plugin(activity) {
                     put("status", result.status)
                     put("finalUrl", result.finalUrl)
                     put("content", result.content)
+                    result.routing?.let { put("routing", it) }
                 })
             } catch (ex: SocketTimeoutException) {
                 invoke.reject("SUBSCRIPTION_TIMEOUT: Android HTTP timeout")
@@ -333,7 +334,8 @@ class KarinVpnPlugin(private val activity: Activity) : Plugin(activity) {
     private data class NativeFetchResult(
         val status: Int,
         val finalUrl: String,
-        val content: String
+        val content: String,
+        val routing: String?
     )
 
     private fun fetchTextBlocking(
@@ -387,11 +389,18 @@ class KarinVpnPlugin(private val activity: Activity) : Plugin(activity) {
 
                 val body = input.use { readBounded(it, maxBytes) }
                     .toString(Charsets.UTF_8)
+                val routing = connection.getHeaderField("routing")
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+                require(routing == null || routing.length <= MAX_ROUTING_HEADER_CHARS) {
+                    "SUBSCRIPTION_ROUTING_TOO_LARGE"
+                }
 
                 return NativeFetchResult(
                     status = status,
                     finalUrl = current.toString(),
-                    content = body
+                    content = body,
+                    routing = routing
                 )
             } finally {
                 connection.disconnect()
@@ -504,6 +513,7 @@ class KarinVpnPlugin(private val activity: Activity) : Plugin(activity) {
 
     companion object {
         private const val MAX_SECURE_STATE_BYTES = 8 * 1024 * 1024
+        private const val MAX_ROUTING_HEADER_CHARS = 1024 * 1024
         private const val POLL_MS = 100L
         private const val START_TIMEOUT_MS = 12_000L
         private const val STOP_TIMEOUT_MS = 5_000L

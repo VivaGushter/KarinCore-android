@@ -94,7 +94,7 @@ fn validate_subscription_url(input: &str) -> Result<Url, String> {
 #[cfg(not(target_os = "android"))]
 async fn fetch_subscription_text(
     url: &str,
-) -> Result<(reqwest::StatusCode, String, String), String> {
+) -> Result<(reqwest::StatusCode, String, String, Option<String>), String> {
     const MAX_BYTES: usize = 8 * 1024 * 1024;
     let mut current = validate_subscription_url(url)?;
 
@@ -168,6 +168,13 @@ async fn fetch_subscription_text(
             return Err("SUBSCRIPTION_TOO_LARGE: ответ подписки превышает 8 МБ".into());
         }
         let status = response.status();
+        let routing_header = response
+            .headers()
+            .get("routing")
+            .and_then(|value| value.to_str().ok())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
         let mut body = Vec::new();
         while let Some(chunk) = response
             .chunk()
@@ -181,7 +188,7 @@ async fn fetch_subscription_text(
         }
         let text = String::from_utf8(body)
             .map_err(|_| "SUBSCRIPTION_ENCODING: ответ подписки должен быть UTF-8".to_string())?;
-        return Ok((status, text, current.to_string()));
+        return Ok((status, text, current.to_string(), routing_header));
     }
 
     Err("SUBSCRIPTION_REDIRECT_LIMIT".into())
@@ -355,7 +362,11 @@ fn run_privileged_helper(_operation: &str, _payload: &[u8]) -> Result<(), String
     Err("Privileged desktop helper is unavailable on Android".into())
 }
 
-fn build_xray_rules(state: Value, priority: Vec<String>) -> Value {
+fn build_xray_rules(state: &Value, priority: Vec<String>) -> Value {
+    if let Some(rules) = state.get("_providerRules").and_then(Value::as_array) {
+        return Value::Array(rules.clone());
+    }
+
     let mut xray_rules = Vec::new();
 
     if let Some(state_object) = state.as_object() {
@@ -391,6 +402,23 @@ fn build_xray_rules(state: Value, priority: Vec<String>) -> Value {
     json!(xray_rules)
 }
 
+fn build_runtime_routing(state: &Value, fallback_strategy: &str, rules: Vec<Value>) -> Value {
+    let domain_strategy = state
+        .get("_domainStrategy")
+        .and_then(Value::as_str)
+        .filter(|value| matches!(*value, "AsIs" | "IPIfNonMatch" | "IPOnDemand"))
+        .unwrap_or(fallback_strategy);
+    let mut routing = json!({ "domainStrategy": domain_strategy, "rules": rules });
+    if let Some(domain_matcher) = state
+        .get("_domainMatcher")
+        .and_then(Value::as_str)
+        .filter(|value| matches!(*value, "linear" | "hybrid"))
+    {
+        routing["domainMatcher"] = json!(domain_matcher);
+    }
+    routing
+}
+
 // **********************************
 // SUBSCRIPTION ROUTING/DNS IMPORT
 // **********************************
@@ -400,9 +428,17 @@ struct SubscriptionResult {
     links: Vec<String>,
     imported_routing: Option<Value>,
     imported_dns: Option<Value>,
+    routing_override: bool,
 }
 
 fn classify_outbound_zone(outbounds: &[Value], tag: &str) -> Option<&'static str> {
+    match tag.to_ascii_lowercase().as_str() {
+        "direct" | "freedom" | "bypass" => return Some("direct"),
+        "block" | "blocked" | "reject" => return Some("block"),
+        "proxy" | "proxied" => return Some("proxy"),
+        _ => {}
+    }
+
     for ob in outbounds {
         if ob.get("tag").and_then(|v| v.as_str()) == Some(tag) {
             let protocol = ob.get("protocol").and_then(|v| v.as_str()).unwrap_or("");
@@ -420,15 +456,51 @@ fn classify_outbound_zone(outbounds: &[Value], tag: &str) -> Option<&'static str
 fn routing_rule_from_domain(raw: &str) -> Value {
     if let Some(rest) = raw.strip_prefix("geosite:") {
         json!({ "type": "geosite", "value": rest })
-    } else if let Some(rest) = raw.strip_prefix("domain:") {
-        json!({ "type": "domain", "value": rest })
     } else if let Some(rest) = raw.strip_prefix("keyword:") {
         json!({ "type": "keyword", "value": rest })
-    } else if let Some(rest) = raw.strip_prefix("regexp:") {
-        json!({ "type": "domain", "value": rest })
     } else {
         json!({ "type": "domain", "value": raw })
     }
+}
+
+fn body_routing_header(text: &str) -> Option<&str> {
+    text.lines().find_map(|line| {
+        let line = line.trim().trim_start_matches('#').trim();
+        let (name, value) = line.split_once(':')?;
+        if !name.trim().eq_ignore_ascii_case("routing") {
+            return None;
+        }
+
+        let value = value.trim().trim_matches('"').trim();
+        (!value.is_empty()).then_some(value)
+    })
+}
+
+fn parse_v2raytun_routing_header(header: &str) -> Result<Value, String> {
+    const MAX_ROUTING_BYTES: usize = 1024 * 1024;
+    let value = header.trim().trim_matches('"').trim();
+    let json_text = if value.starts_with('{') {
+        value.to_string()
+    } else {
+        let encoded = value.strip_prefix("base64:").unwrap_or(value);
+        let decoded = decode_base64_flexible(encoded).ok_or_else(|| {
+            "SUBSCRIPTION_ROUTING_INVALID: routing header is not valid Base64".to_string()
+        })?;
+        if decoded.len() > MAX_ROUTING_BYTES {
+            return Err("SUBSCRIPTION_ROUTING_TOO_LARGE: routing profile exceeds 1 MB".into());
+        }
+        decoded
+    };
+
+    if json_text.len() > MAX_ROUTING_BYTES {
+        return Err("SUBSCRIPTION_ROUTING_TOO_LARGE: routing profile exceeds 1 MB".into());
+    }
+
+    let routing: Value = serde_json::from_str(&json_text)
+        .map_err(|e| format!("SUBSCRIPTION_ROUTING_INVALID: {e}"))?;
+    convert_routing_to_zones(&routing, &[]).ok_or_else(|| {
+        "SUBSCRIPTION_ROUTING_UNSUPPORTED: routing profile has no supported Direct, Proxy or Block rules".to_string()
+    })
 }
 
 fn convert_routing_to_zones(routing: &Value, outbounds: &[Value]) -> Option<Value> {
@@ -438,6 +510,7 @@ fn convert_routing_to_zones(routing: &Value, outbounds: &[Value]) -> Option<Valu
     zones.insert("proxy".to_string(), json!([]));
     zones.insert("block".to_string(), json!([]));
     let mut found_any = false;
+    let mut provider_rules = Vec::new();
 
     for rule in rules {
         let tag = match rule.get("outboundTag").and_then(|v| v.as_str()) {
@@ -449,6 +522,28 @@ fn convert_routing_to_zones(routing: &Value, outbounds: &[Value]) -> Option<Valu
             None => continue,
         };
         let zone_arr = zones.get_mut(zone_key).unwrap().as_array_mut().unwrap();
+
+        let mut provider_rule = serde_json::Map::new();
+        provider_rule.insert("type".into(), json!("field"));
+        for key in [
+            "domain",
+            "ip",
+            "port",
+            "sourcePort",
+            "network",
+            "source",
+            "user",
+            "inboundTag",
+            "protocol",
+            "attrs",
+        ] {
+            if let Some(value) = rule.get(key) {
+                provider_rule.insert(key.into(), value.clone());
+            }
+        }
+        provider_rule.insert("outboundTag".into(), json!(zone_key));
+        provider_rules.push(Value::Object(provider_rule));
+        found_any = true;
 
         if let Some(domains) = rule.get("domain").and_then(|v| v.as_array()) {
             for d in domains {
@@ -469,6 +564,13 @@ fn convert_routing_to_zones(routing: &Value, outbounds: &[Value]) -> Option<Valu
     }
 
     if found_any {
+        zones.insert("_providerRules".to_string(), Value::Array(provider_rules));
+        if let Some(value) = routing.get("domainStrategy").and_then(Value::as_str) {
+            zones.insert("_domainStrategy".to_string(), json!(value));
+        }
+        if let Some(value) = routing.get("domainMatcher").and_then(Value::as_str) {
+            zones.insert("_domainMatcher".to_string(), json!(value));
+        }
         Some(Value::Object(zones))
     } else {
         None
@@ -1520,10 +1622,14 @@ fn build_android_wireguard_outbound(wg_link: &str) -> Result<Value, String> {
 // **********************************
 // TAURI COMMANDS: PROXY & NETWORK MANAGEMENT
 // **********************************
-fn parse_subscription_content(text: &str) -> Result<SubscriptionResult, String> {
+fn parse_subscription_content_with_routing(
+    text: &str,
+    http_routing_header: Option<&str>,
+) -> Result<SubscriptionResult, String> {
     let mut links = Vec::new();
     let mut imported_routing: Option<Value> = None;
     let mut imported_dns: Option<Value> = None;
+    let mut subscription_routing = http_routing_header.map(str::to_string);
 
     let parse_json = |json_str: &str,
                       out_links: &mut Vec<String>,
@@ -1680,6 +1786,9 @@ fn parse_subscription_content(text: &str) -> Result<SubscriptionResult, String> 
         }
 
         if decoded {
+            if subscription_routing.is_none() {
+                subscription_routing = body_routing_header(&decoded_str).map(str::to_string);
+            }
             parse_json(
                 &decoded_str,
                 &mut links,
@@ -1696,11 +1805,24 @@ fn parse_subscription_content(text: &str) -> Result<SubscriptionResult, String> 
         return Err("Не удалось найти профили.\nВозможно формат не поддерживается.".into());
     }
 
+    if subscription_routing.is_none() {
+        subscription_routing = body_routing_header(text).map(str::to_string);
+    }
+    let routing_override = subscription_routing.is_some();
+    if let Some(header) = subscription_routing {
+        imported_routing = Some(parse_v2raytun_routing_header(&header)?);
+    }
+
     Ok(SubscriptionResult {
         links,
         imported_routing,
         imported_dns,
+        routing_override,
     })
+}
+
+fn parse_subscription_content(text: &str) -> Result<SubscriptionResult, String> {
+    parse_subscription_content_with_routing(text, None)
 }
 
 #[cfg(not(target_os = "android"))]
@@ -1709,12 +1831,17 @@ async fn fetch_subscription(url: String) -> Result<SubscriptionResult, String> {
     validate_subscription_url(&url)?;
     let mut current_url = url;
     let mut text = String::new();
+    let mut routing_header = None;
     let mut attempts = 0;
 
     while attempts < 2 {
-        let (status, fetched_text, final_url) = fetch_subscription_text(&current_url).await?;
+        let (status, fetched_text, final_url, fetched_routing) =
+            fetch_subscription_text(&current_url).await?;
         text = fetched_text;
         current_url = final_url;
+        if fetched_routing.is_some() {
+            routing_header = fetched_routing;
+        }
 
         if !status.is_success() {
             return Err(format!(
@@ -1741,7 +1868,7 @@ async fn fetch_subscription(url: String) -> Result<SubscriptionResult, String> {
         break;
     }
 
-    parse_subscription_content(&text)
+    parse_subscription_content_with_routing(&text, routing_header.as_deref())
 }
 
 #[cfg(target_os = "android")]
@@ -1754,6 +1881,7 @@ async fn fetch_subscription(
 
     validate_subscription_url(&url)?;
     let mut current_url = url;
+    let mut routing_header = None;
     let mut attempts = 0;
 
     while attempts < 2 {
@@ -1776,6 +1904,10 @@ async fn fetch_subscription(
             ));
         }
 
+        if fetched.routing.is_some() {
+            routing_header = fetched.routing.clone();
+        }
+
         let clean_check = fetched.content.trim();
         if (clean_check.starts_with('{')
             || clean_check.starts_with('[')
@@ -1791,7 +1923,10 @@ async fn fetch_subscription(
             continue;
         }
 
-        return parse_subscription_content(&fetched.content);
+        return parse_subscription_content_with_routing(
+            &fetched.content,
+            routing_header.as_deref(),
+        );
     }
 
     Err("SUBSCRIPTION_EMPTY: не удалось получить подписку".into())
@@ -2004,7 +2139,7 @@ async fn start_openvpn_proxy(
         return Err("Таймаут: сервер OpenVPN не отвечает".into());
     }
 
-    let dynamic_rules = build_xray_rules(routing_state, zone_priority);
+    let dynamic_rules = build_xray_rules(&routing_state, zone_priority);
 
     let mut all_rules = vec![];
     all_rules.push(json!({ "type": "field", "inboundTag": ["ping-in"], "outboundTag": "proxy" }));
@@ -2024,12 +2159,13 @@ async fn start_openvpn_proxy(
     }
     all_rules
         .push(json!({ "type": "field", "network": "tcp,udp", "outboundTag": default_outbound }));
+    let runtime_routing = build_runtime_routing(&routing_state, "AsIs", all_rules);
 
     let (err_log, acc_log) = get_log_paths();
 
     let config = serde_json::json!({
         "log": { "loglevel": "debug", "access": acc_log, "error": err_log },
-        "routing": { "domainStrategy": "AsIs", "rules": all_rules },
+        "routing": runtime_routing,
         "inbounds": [
             { "port": 2080, "listen": "127.0.0.1", "protocol": "mixed", "settings": { "accounts": [ { "user": "karin", "pass": "openvpn_mode" } ] } },
             { "tag": "tun-in", "port": 2081, "listen": "127.0.0.1", "protocol": "tun", "settings": { "name": "tun0", "mtu": 1500, "gateway": ["172.19.0.1/30"] }, "sniffing": { "enabled": true, "destOverride": ["http", "tls", "quic"] } },
@@ -2308,7 +2444,7 @@ async fn start_wireguard_proxy(
         }
     });
 
-    let dynamic_rules = build_xray_rules(routing_state, zone_priority);
+    let dynamic_rules = build_xray_rules(&routing_state, zone_priority);
 
     let mut all_rules = vec![];
     all_rules.push(json!({ "type": "field", "inboundTag": ["ping-in"], "outboundTag": "proxy" }));
@@ -2328,12 +2464,13 @@ async fn start_wireguard_proxy(
     }
     all_rules
         .push(json!({ "type": "field", "network": "tcp,udp", "outboundTag": default_outbound }));
+    let runtime_routing = build_runtime_routing(&routing_state, "AsIs", all_rules);
 
     let (err_log, acc_log) = get_log_paths();
 
     let config = serde_json::json!({
         "log": { "loglevel": "debug", "access": acc_log, "error": err_log },
-        "routing": { "domainStrategy": "AsIs", "rules": all_rules },
+        "routing": runtime_routing,
         "inbounds": [
             { "port": 2080, "listen": "127.0.0.1", "protocol": "mixed", "settings": { "accounts": [ { "user": "karin", "pass": "wireguard_mode" } ] } },
             { "tag": "tun-in", "port": 2081, "listen": "127.0.0.1", "protocol": "tun", "settings": { "name": "tun0", "mtu": 1420, "gateway": ["172.19.0.1/30"] }, "sniffing": { "enabled": true, "destOverride": ["http", "tls", "quic"] } },
@@ -2438,7 +2575,7 @@ async fn start_proxy(
     let (proxy_outbound, out_addr, resolved_ips) = build_proxy_outbound(&vless_link).await?;
 
     let dns_config = build_dns_config(&dns_params, &routing_state);
-    let dynamic_rules = build_xray_rules(routing_state, zone_priority);
+    let dynamic_rules = build_xray_rules(&routing_state, zone_priority);
 
     let mut all_rules = vec![];
     all_rules.push(json!({ "type": "field", "inboundTag": ["dns-in"], "outboundTag": "dns-out" }));
@@ -2459,13 +2596,14 @@ async fn start_proxy(
     }
     all_rules
         .push(json!({ "type": "field", "network": "tcp,udp", "outboundTag": default_outbound }));
+    let runtime_routing = build_runtime_routing(&routing_state, "IPIfNonMatch", all_rules);
 
     let (err_log, acc_log) = get_log_paths();
 
     let config = serde_json::json!({
         "log": { "loglevel": "debug", "access": acc_log, "error": err_log },
         "dns": dns_config,
-        "routing": { "domainStrategy": "IPIfNonMatch", "rules": all_rules },
+        "routing": runtime_routing,
         "inbounds": [
             { "port": 2080, "listen": "127.0.0.1", "protocol": "mixed", "settings": { "accounts": [ { "user": "karin", "pass": token } ] } },
             { "tag": "tun-in", "port": 2081, "listen": "127.0.0.1", "protocol": "tun", "settings": { "name": "tun0", "mtu": 1500, "gateway": ["172.19.0.1/30"] }, "sniffing": { "enabled": true, "destOverride": ["http", "tls", "quic"] } },
@@ -2854,7 +2992,7 @@ async fn start_proxy(
         outbound
     };
     let dns_config = build_dns_config(&dns_params, &routing_state);
-    let dynamic_rules = build_xray_rules(routing_state, zone_priority);
+    let dynamic_rules = build_xray_rules(&routing_state, zone_priority);
 
     let mut all_rules = vec![
         json!({
@@ -2894,6 +3032,7 @@ async fn start_proxy(
         "network": "tcp,udp",
         "outboundTag": default_outbound
     }));
+    let runtime_routing = build_runtime_routing(&routing_state, "IPIfNonMatch", all_rules);
 
     let android_tun_mtu = if vless_link.starts_with("wg://") {
         1420
@@ -2904,10 +3043,7 @@ async fn start_proxy(
     let config = json!({
         "log": { "loglevel": "warning" },
         "dns": dns_config,
-        "routing": {
-            "domainStrategy": "IPIfNonMatch",
-            "rules": all_rules
-        },
+        "routing": runtime_routing,
         "inbounds": [
             {
                 "tag": "tun-in",
@@ -3313,7 +3449,10 @@ mod tests {
             "block": [{ "type": "unsupported", "value": "ignored" }]
         });
 
-        let rules = build_xray_rules(state, vec!["proxy".into(), "direct".into(), "block".into()]);
+        let rules = build_xray_rules(
+            &state,
+            vec!["proxy".into(), "direct".into(), "block".into()],
+        );
 
         assert_eq!(
             rules,
@@ -3495,6 +3634,82 @@ mod tests {
         assert_eq!(parsed.links.len(), 2);
         assert!(parsed.links[0].starts_with("trojan://"));
         assert!(parsed.links[1].starts_with("ss://"));
+    }
+
+    #[test]
+    fn subscription_parser_applies_v2raytun_routing_headers() {
+        let routing = json!({
+            "domainStrategy": "AsIs",
+            "domainMatcher": "hybrid",
+            "name": "Direct Russia",
+            "rules": [
+                {
+                    "type": "field",
+                    "domain": ["regexp:.*\\.ru$", "geosite:category-ru"],
+                    "ip": ["geoip:ru"],
+                    "outboundTag": "direct"
+                },
+                {
+                    "type": "field",
+                    "domain": ["geosite:category-ads-all"],
+                    "outboundTag": "block"
+                }
+            ]
+        });
+        let header = general_purpose::STANDARD.encode(routing.to_string());
+        let body = "vless://id@192.0.2.1:443?security=tls#one";
+
+        let parsed = parse_subscription_content_with_routing(body, Some(&header)).unwrap();
+        assert!(parsed.routing_override);
+        let imported = parsed.imported_routing.unwrap();
+        assert_eq!(
+            imported["direct"],
+            json!([
+                { "type": "domain", "value": "regexp:.*\\.ru$" },
+                { "type": "geosite", "value": "category-ru" },
+                { "type": "ip", "value": "geoip:ru" }
+            ])
+        );
+        assert_eq!(
+            imported["block"],
+            json!([{ "type": "geosite", "value": "category-ads-all" }])
+        );
+
+        let xray_rules = build_xray_rules(
+            &imported,
+            vec!["direct".into(), "proxy".into(), "block".into()],
+        );
+        assert_eq!(
+            xray_rules[0],
+            json!({
+                "type": "field",
+                "outboundTag": "direct",
+                "domain": ["regexp:.*\\.ru$", "geosite:category-ru"],
+                "ip": ["geoip:ru"]
+            })
+        );
+        assert_eq!(xray_rules[1]["outboundTag"], "block");
+    }
+
+    #[test]
+    fn subscription_parser_reads_v2raytun_routing_from_decoded_body() {
+        let routing = json!({
+            "rules": [{
+                "type": "field",
+                "domain": ["domain:example.org"],
+                "outboundTag": "direct"
+            }]
+        });
+        let header = general_purpose::URL_SAFE_NO_PAD.encode(routing.to_string());
+        let decoded = format!("routing: \"{header}\"\nvless://id@192.0.2.1:443?security=tls#one");
+        let body = general_purpose::STANDARD.encode(decoded);
+
+        let parsed = parse_subscription_content(&body).unwrap();
+        assert!(parsed.routing_override);
+        assert_eq!(
+            parsed.imported_routing.unwrap()["direct"],
+            json!([{ "type": "domain", "value": "domain:example.org" }])
+        );
     }
 
     #[test]

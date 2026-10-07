@@ -5,12 +5,13 @@ import { escapeHtml } from "./security";
 // **********************************
 // TYPES & INTERFACES
 // **********************************
-interface ProxyGroup { id: string; name: string; pinned: boolean; isOpen: boolean; sourceUrl?: string; }
+interface ProxyGroup { id: string; name: string; pinned: boolean; isOpen: boolean; sourceUrl?: string; providerRouting?: RoutingMap; }
 interface ProxyLink { id: string; url: string; pinned: boolean; groupId: string | null; }
 interface DnsConfig { type: string, url: string, ip: string }
 interface RouteProfile { id: string, name: string, defaultOutbound: string, rules: any, domDns?: DnsConfig, remDns?: DnsConfig, zonePriority?: ZoneKey[] }
 interface RoutingRule { type: string; value: string; }
 type ZoneKey = 'direct' | 'proxy' | 'block';
+type RoutingMap = Record<ZoneKey, RoutingRule[]>;
 type AppRoutingMode = 'all' | 'allowlist' | 'denylist';
 interface InstalledApp { label: string; packageName: string; system: boolean; }
 interface RuntimeInfo { platform: 'android' | 'desktop'; version: string; updateRepo: string; }
@@ -30,7 +31,7 @@ interface VpnRuntimeStatus {
     coreVersion?: string | null;
     lastError?: string | null;
 }
-interface SubscriptionResult { links: string[]; importedRouting?: Record<ZoneKey, RoutingRule[]>; importedDns?: { domestic?: DnsConfig; remote?: DnsConfig }; }
+interface SubscriptionResult { links: string[]; importedRouting?: RoutingMap; importedDns?: { domestic?: DnsConfig; remote?: DnsConfig }; routingOverride?: boolean; }
 interface SensitiveState { groups: ProxyGroup[]; links: ProxyLink[]; selectedProfileUrl: string | null; }
 
 // **********************************
@@ -63,7 +64,22 @@ function isProxyGroup(value: unknown): value is ProxyGroup {
         && typeof item.name === 'string'
         && typeof item.pinned === 'boolean'
         && typeof item.isOpen === 'boolean'
-        && (item.sourceUrl === undefined || typeof item.sourceUrl === 'string');
+        && (item.sourceUrl === undefined || typeof item.sourceUrl === 'string')
+        && (item.providerRouting === undefined || isRoutingMap(item.providerRouting));
+}
+
+function isRoutingMap(value: unknown): value is RoutingMap {
+    if (!value || typeof value !== 'object') return false;
+    const map = value as Partial<RoutingMap>;
+    return (['direct', 'proxy', 'block'] as ZoneKey[]).every(zone =>
+        Array.isArray(map[zone])
+        && map[zone]!.every(rule =>
+            !!rule
+            && typeof rule === 'object'
+            && typeof rule.type === 'string'
+            && typeof rule.value === 'string'
+        )
+    );
 }
 
 let runtimeInfo: RuntimeInfo = { platform: 'desktop', version: '0.0.0', updateRepo: PROJECT_REPO };
@@ -666,10 +682,17 @@ async function saveNewLink() {
             const result = await Promise.race([subscriptionRequest, uiWatchdog]);
             const domain = new URL(input).hostname;
             const newGroupId = 'grp_' + Date.now();
-            appGroups.push({ id: newGroupId, name: domain, pinned: false, isOpen: true, sourceUrl: input });
+            appGroups.push({
+                id: newGroupId,
+                name: domain,
+                pinned: false,
+                isOpen: true,
+                sourceUrl: input,
+                providerRouting: result.routingOverride ? result.importedRouting : undefined
+            });
             result.links.forEach(u => addLink(u, newGroupId));
 
-            if (result.importedRouting) mergeImportedRouting(result.importedRouting);
+            if (result.importedRouting && !result.routingOverride) mergeImportedRouting(result.importedRouting);
             if (result.importedDns) mergeImportedDns(result.importedDns);
 
             saveData();
@@ -747,7 +770,12 @@ async function refreshSubscriptionGroup(groupId: string) {
 
         appLinks = appLinks.filter(link => link.groupId !== groupId).concat(refreshed);
 
-        if (result.importedRouting) mergeImportedRouting(result.importedRouting);
+        if (result.routingOverride) {
+            group.providerRouting = result.importedRouting;
+        } else {
+            delete group.providerRouting;
+        }
+        if (result.importedRouting && !result.routingOverride) mergeImportedRouting(result.importedRouting);
         if (result.importedDns) mergeImportedDns(result.importedDns);
 
         saveData();
@@ -789,10 +817,17 @@ async function connectProxy(link: string) {
             return;
         }
 
+        const linkEntry = appLinks.find(item => item.url === link);
+        const group = linkEntry?.groupId
+            ? appGroups.find(item => item.id === linkEntry.groupId)
+            : undefined;
+        const effectiveRouting = group?.providerRouting || routingState;
+        const effectiveDefaultOutbound = group?.providerRouting ? 'proxy' : defaultOutbound;
+
         const result = await invoke('start_proxy', { 
             vlessLink: link, 
-            routingState: routingState, 
-            defaultOutbound: defaultOutbound,
+            routingState: effectiveRouting,
+            defaultOutbound: effectiveDefaultOutbound,
             dnsParams: { domestic: dDns, remote: rDns },
             allowServerProxy: allowServerProxy,
             zonePriority: zonePriority,
