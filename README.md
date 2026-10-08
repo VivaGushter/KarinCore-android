@@ -2,7 +2,7 @@
   <img src="src-tauri/icons/icon.png" alt="KarinCore" width="160"/>
   <h1>KarinCore Android</h1>
   <p>Android port of KarinCore powered by Tauri 2, Rust, Android VpnService and Xray-core.</p>
-  <p><strong>Current version: 0.1.0-alpha.25</strong></p>
+  <p><strong>Current version: 0.1.0-alpha.26</strong></p>
   <p><a href="README-ru.md">Русская версия</a></p>
 </div>
 
@@ -12,15 +12,16 @@ This repository is an experimental Android port of [detestern/KarinCore](https:/
 
 The shared KarinCore TypeScript UI and Rust parsing/routing logic are retained. Linux-specific tunnel setup is replaced on Android by a native `VpnService` bridge and Xray TUN integration.
 
-Version `0.1.0-alpha.25` is distributed as an arm64 debug APK through GitHub prereleases. Real-device runtime validation is the next verification step.
+Version `0.1.0-alpha.26` is distributed as an arm64 debug APK through GitHub prereleases. Real-device runtime validation is the next verification step.
 
-## Implemented through 0.1.0-alpha.25
+## Implemented through 0.1.0-alpha.26
 
 - Tauri 2 mobile entry point.
 - Native Android `VpnService`.
 - Foreground VPN service for modern Android.
 - Android TUN interface with IPv4 and IPv6 routes.
 - Xray-core integration through pinned `2dust/AndroidLibXrayLite v26.9.30`.
+- `geoip.dat` and `geosite.dat` are bundled in the APK and atomically installed into the app-private directory before Xray starts, allowing `geoip:*` and `geosite:*` rules without a separate download.
 - TUN file descriptor passed directly to `CoreController.startLoop(...)`.
 - Existing KarinCore VLESS/Reality, VMess, Trojan and Shadowsocks parsing reused.
 - Existing Direct / Proxy / Block routing model reused.

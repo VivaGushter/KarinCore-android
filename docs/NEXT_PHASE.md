@@ -1,6 +1,6 @@
 # Phase 3 status
 
-Current version: `0.1.0-alpha.25`
+Current version: `0.1.0-alpha.26`
 
 ## Completed
 
@@ -19,6 +19,7 @@ Current version: `0.1.0-alpha.25`
 13. Built-in VPN self-test for native service/Xray/TUN/proxy-path/external-IP validation.
 14. V2RayTun subscription routing import for both object and top-level array payloads, with an in-app active-route indicator.
 15. Read-only visualization of the effective subscription route, connection state and ordered Xray rules.
+16. Offline installation of bundled Xray `geoip.dat` and `geosite.dat` before Android core startup.
 
 ## Planned
 

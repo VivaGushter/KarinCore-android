@@ -100,6 +100,15 @@ jobs:
       - name: Build arm64 debug APK
         run: npm run tauri -- android build --apk --target aarch64 --debug --ci
 
+      - name: Verify Xray geodata assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$(find src-tauri/gen/android/app/build/outputs -type f -name '*.apk' | head -n 1)"
+          test -n "$APK"
+          unzip -Z1 "$APK" | grep -Fx 'assets/geoip.dat'
+          unzip -Z1 "$APK" | grep -Fx 'assets/geosite.dat'
+
       - name: List APK outputs
         if: always()
         shell: bash

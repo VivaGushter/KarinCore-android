@@ -26,6 +26,7 @@ import libv2ray.CoreController
 import libv2ray.Libv2ray
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.util.concurrent.Executors
 
 class KarinVpnService : VpnService() {
@@ -194,13 +195,68 @@ class KarinVpnService : VpnService() {
         // Required by gomobile so bundled assets (geoip.dat/geosite.dat) are visible.
         Seq.setContext(applicationContext)
 
-        // AndroidLibXrayLite falls back to its bundled assets if the files do not
-        // exist in this directory. The directory also gives us a future place for
-        // user-updated geo files without changing the integration API.
+        // initCoreEnv points Xray at a normal filesystem directory. Android assets
+        // remain inside the APK, so copy the pinned databases into the private app
+        // directory before the core parses subscription routing rules.
+        ensureGeoDataFiles()
         Libv2ray.initCoreEnv(filesDir.absolutePath, "")
         coreVersion = Libv2ray.checkVersionX()
         recordLog("INFO", "Xray core initialized: ${coreVersion.orEmpty()}")
         coreController = Libv2ray.newCoreController(CoreCallback())
+    }
+
+    private fun ensureGeoDataFiles() {
+        val required = listOf("geoip.dat", "geosite.dat")
+        val marker = File(filesDir, GEO_DATA_MARKER)
+        val ready = runCatching {
+            marker.takeIf { it.isFile }?.readText() == GEO_DATA_REVISION &&
+                required.all { name -> File(filesDir, name).let { it.isFile && it.length() > 0L } }
+        }.getOrDefault(false)
+        if (ready) {
+            recordGeoDataReady("ready")
+            return
+        }
+
+        filesDir.mkdirs()
+        required.forEach { name ->
+            val destination = File(filesDir, name)
+            val temporary = File(filesDir, ".$name.tmp")
+            temporary.delete()
+
+            try {
+                assets.open(name).use { input ->
+                    temporary.outputStream().use { output -> input.copyTo(output) }
+                }
+                check(temporary.length() > 0L) { "Bundled $name is empty" }
+                if (destination.exists() && !destination.delete()) {
+                    error("Unable to replace ${destination.absolutePath}")
+                }
+                if (!temporary.renameTo(destination)) {
+                    temporary.copyTo(destination, overwrite = true)
+                    temporary.delete()
+                }
+            } catch (t: Throwable) {
+                temporary.delete()
+                throw IllegalStateException("Unable to install bundled $name: ${t.message}", t)
+            }
+        }
+
+        val markerTemporary = File(filesDir, ".$GEO_DATA_MARKER.tmp")
+        markerTemporary.writeText(GEO_DATA_REVISION)
+        marker.delete()
+        if (!markerTemporary.renameTo(marker)) {
+            markerTemporary.copyTo(marker, overwrite = true)
+            markerTemporary.delete()
+        }
+        recordGeoDataReady("installed")
+    }
+
+    private fun recordGeoDataReady(state: String) {
+        recordLog(
+            "INFO",
+            "Xray geodata $state: geoip.dat=${File(filesDir, "geoip.dat").length()}, " +
+                "geosite.dat=${File(filesDir, "geosite.dat").length()}"
+        )
     }
 
     private fun startTunnel(
@@ -600,6 +656,8 @@ class KarinVpnService : VpnService() {
 
     companion object {
         private const val TAG = "KarinVpnService"
+        private const val GEO_DATA_REVISION = "AndroidLibXrayLite-v26.9.30"
+        private const val GEO_DATA_MARKER = ".karincore-geodata-revision"
         @Volatile private var instance: KarinVpnService? = null
         private const val MAX_LOG_LINES = 500
         private val logLock = Any()

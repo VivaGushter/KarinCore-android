@@ -4,6 +4,18 @@ All notable Android-port changes are tracked here.
 
 ## Unreleased
 
+## [0.1.0-alpha.26] - 2026-10-08
+
+Android Xray geodata installation repair.
+
+### Fixed
+- Extracted the bundled `geoip.dat` and `geosite.dat` assets into the app-private filesystem before calling `initCoreEnv`, fixing subscription routes that use `geoip:*` and `geosite:*` selectors.
+- Installed geodata atomically and tracked its bundled revision so interrupted copies are retried and future bundled database revisions can replace old files safely.
+
+### Reliability
+- Added an Android CI gate that opens the completed APK and verifies both Xray geodata assets are present before the artifact can be published.
+- Added native log output with the installed geodata sizes for on-device verification.
+
 ## [0.1.0-alpha.25] - 2026-10-08
 
 Visible effective subscription routing.
