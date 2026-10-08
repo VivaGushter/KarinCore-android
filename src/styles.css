@@ -1539,6 +1539,25 @@ button.danger {
     line-height: 1.4;
 }
 
+.patch-release-summary {
+    margin: 0 0 10px;
+    color: var(--text-dim);
+    line-height: 1.5;
+}
+
+.patch-release-group + .patch-release-group {
+    margin-top: 12px;
+}
+
+.patch-release-category {
+    margin: 0 0 7px;
+    color: var(--success);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
 .patch-release-items {
     display: flex;
     flex-direction: column;
@@ -1558,6 +1577,32 @@ button.danger {
     left: 0;
     color: var(--accent);
     content: '•';
+}
+
+.back-exit-toast {
+    position: fixed;
+    left: 50%;
+    bottom: max(24px, calc(env(safe-area-inset-bottom) + 16px));
+    z-index: 3000;
+    max-width: min(88vw, 420px);
+    padding: 11px 16px;
+    border: 1px solid var(--border-hover);
+    border-radius: 999px;
+    background: var(--base-crust);
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+    color: var(--text-color);
+    font-size: 13px;
+    line-height: 1.35;
+    text-align: center;
+    opacity: 0;
+    pointer-events: none;
+    transform: translate(-50%, 14px);
+    transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.back-exit-toast.visible {
+    opacity: 1;
+    transform: translate(-50%, 0);
 }
 
 .copyable-item {

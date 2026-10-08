@@ -1,10 +1,53 @@
 import { describe, expect, it } from 'vitest';
-import { DISCONNECTED_CORE_LABEL, renderPatchNotes } from './ui';
+import { DISCONNECTED_CORE_LABEL, renderPatchNotes, renderProjectChangelog, resolveAndroidBackAction } from './ui';
 
 describe('mobile status presentation', () => {
     it('uses a user-facing idle state instead of leaking a null sentinel', () => {
         expect(DISCONNECTED_CORE_LABEL).toBe('idle');
         expect(DISCONNECTED_CORE_LABEL).not.toBe('null');
+    });
+});
+
+describe('Android back navigation', () => {
+    const baseState = {
+        dialogOpen: false,
+        profilesOpen: false,
+        menuOpen: false,
+        activePageId: 'page-main',
+        exitArmed: false,
+    };
+
+    it('returns every secondary page to the main page', () => {
+        expect(resolveAndroidBackAction({ ...baseState, activePageId: 'page-routing' })).toBe('go-main');
+        expect(resolveAndroidBackAction({ ...baseState, activePageId: 'page-settings' })).toBe('go-main');
+        expect(resolveAndroidBackAction({ ...baseState, activePageId: 'page-about' })).toBe('go-main');
+    });
+
+    it('requires a second press before exiting the main page', () => {
+        expect(resolveAndroidBackAction(baseState)).toBe('arm-exit');
+        expect(resolveAndroidBackAction({ ...baseState, exitArmed: true })).toBe('exit');
+    });
+
+    it('closes overlays before navigating or exiting', () => {
+        expect(resolveAndroidBackAction({ ...baseState, dialogOpen: true })).toBe('close-dialog');
+        expect(resolveAndroidBackAction({ ...baseState, profilesOpen: true })).toBe('close-profiles');
+        expect(resolveAndroidBackAction({ ...baseState, menuOpen: true })).toBe('close-menu');
+    });
+});
+
+describe('project changelog presentation', () => {
+    it('renders repository releases, categories and changes as structured blocks', () => {
+        const html = renderProjectChangelog(`# Changelog\n\n## Unreleased\n\n## [0.1.0-alpha.2] - 2026-10-08\n\nOwn release.\n\n### Added\n- First project change\n### Fixed\n- Second project change`);
+
+        expect(html).toContain('v 0.1.0-alpha.2 — 2026-10-08');
+        expect(html).toContain('Own release.');
+        expect(html).toContain('Added');
+        expect(html.match(/class="patch-release-item"/g)).toHaveLength(2);
+        expect(html).not.toContain('Unreleased');
+    });
+
+    it('escapes changelog content', () => {
+        expect(renderProjectChangelog('## [1.0.0]\n### Fixed\n- <script>alert(1)</script>')).not.toContain('<script>');
     });
 });
 

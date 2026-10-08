@@ -6,11 +6,11 @@
 
 - Repository: `VivaGushter/KarinCore-android`
 - Branch: `main`
-- Version: `0.1.0-alpha.26`
-- Android versionCode: `26`
-- Release code baseline: tag `v0.1.0-alpha.26`
+- Version: `0.1.0-alpha.27`
+- Android versionCode: `27`
+- Release code baseline: tag `v0.1.0-alpha.27`
 - Upstream base: `detestern/KarinCore` 1.3.7, commit `b7fea2e2ff5e1492fd863381985fdebb4da7a57e`
-- Current Android release: `v0.1.0-alpha.26`
+- Current Android release: `v0.1.0-alpha.27`
 - Current release APK: arm64 debug, approximately 73.7 MB
 - Repository checks: passing
 - Android CI build: passing

@@ -24,14 +24,14 @@
 
 Baseline на момент handoff:
 
-- version `0.1.0-alpha.26`
-- versionCode `26`
-- HEAD tagged as `v0.1.0-alpha.26`
-- release `v0.1.0-alpha.26`
+- version `0.1.0-alpha.27`
+- versionCode `27`
+- HEAD tagged as `v0.1.0-alpha.27`
+- release `v0.1.0-alpha.27`
 - arm64 debug APK около 73.7 MB
 - Repository checks green
 - Android build green
-- next normal version: `0.1.0-alpha.27`, versionCode 27
+- next normal version: `0.1.0-alpha.28`, versionCode 28
 
 ## 2. Архитектурные правила
 
@@ -287,8 +287,8 @@ Android уже использует единственный VpnService/TUN.
 
 Если `main` всё ещё `0.1.0-alpha.22`, следующий release номер:
 
-- `0.1.0-alpha.26`
-- Android versionCode `26`
+- `0.1.0-alpha.27`
+- Android versionCode `27`
 
 Если repo уже обновился, определить следующий номер из актуального `VERSION`.
 

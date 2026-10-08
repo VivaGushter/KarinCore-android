@@ -1,7 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
+import { exit, onBackButtonPress } from "@tauri-apps/api/app";
+import projectChangelog from "../CHANGELOG.md?raw";
 import { translations } from "./i18n";
 import { escapeHtml } from "./security";
-import { DISCONNECTED_CORE_LABEL, renderPatchNotes } from "./ui";
+import { DISCONNECTED_CORE_LABEL, renderProjectChangelog, resolveAndroidBackAction } from "./ui";
 
 // **********************************
 // TYPES & INTERFACES
@@ -257,6 +259,7 @@ const appRoutingSummary = document.getElementById('android-app-routing-summary')
 const appRoutingModal = document.getElementById('android-app-modal') as HTMLDialogElement | null;
 const appRoutingSearch = document.getElementById('android-app-search') as HTMLInputElement | null;
 const appRoutingList = document.getElementById('android-app-list') as HTMLDivElement | null;
+const backExitToast = document.getElementById('back-exit-toast') as HTMLDivElement | null;
 
 const domType = document.getElementById('dns-dom-type') as HTMLSelectElement | null;
 const domUrl = document.getElementById('dns-dom-url') as HTMLInputElement | null;
@@ -1024,6 +1027,7 @@ function toggleMenu(show?: boolean) {
 function switchPage(pageId: string) { 
     pages.forEach(page => page.classList.toggle('active', page.id === pageId)); 
     toggleMenu(false); 
+    resetBackExitConfirmation();
     
     if (pageId === 'page-logs' && toggleLogs?.checked) { 
         fetchLogs(); 
@@ -1031,6 +1035,83 @@ function switchPage(pageId: string) {
     } else { 
         if (logInterval) { clearInterval(logInterval); logInterval = null; } 
     } 
+}
+
+const ANDROID_EXIT_CONFIRMATION_MS = 2200;
+let backExitDeadline = 0;
+let backExitTimer: number | null = null;
+
+function resetBackExitConfirmation() {
+    backExitDeadline = 0;
+    if (backExitTimer !== null) {
+        window.clearTimeout(backExitTimer);
+        backExitTimer = null;
+    }
+    backExitToast?.classList.remove('visible');
+}
+
+function armBackExitConfirmation() {
+    resetBackExitConfirmation();
+    backExitDeadline = Date.now() + ANDROID_EXIT_CONFIRMATION_MS;
+    if (backExitToast) {
+        backExitToast.textContent = t('back_exit_confirm');
+        backExitToast.classList.add('visible');
+    }
+    backExitTimer = window.setTimeout(resetBackExitConfirmation, ANDROID_EXIT_CONFIRMATION_MS);
+}
+
+async function handleAndroidBackPress() {
+    const openDialog = document.querySelector<HTMLDialogElement>('dialog[open]');
+    const profiles = document.getElementById('profiles-drawer');
+    const action = resolveAndroidBackAction({
+        dialogOpen: openDialog !== null,
+        profilesOpen: profiles?.classList.contains('open') === true,
+        menuOpen: sidebar?.classList.contains('open') === true,
+        activePageId: document.querySelector<HTMLElement>('.page-view.active')?.id || 'page-main',
+        exitArmed: backExitDeadline > Date.now(),
+    });
+
+    resetBackExitConfirmation();
+
+    if (action === 'close-dialog') {
+        if (openDialog?.id === 'prompt-modal') {
+            document.getElementById('prompt-cancel')?.click();
+        } else {
+            openDialog?.close();
+        }
+        return;
+    }
+    if (action === 'close-profiles') {
+        profiles?.classList.remove('open');
+        document.getElementById('profiles-drawer-overlay')?.classList.remove('open');
+        return;
+    }
+    if (action === 'close-menu') {
+        toggleMenu(false);
+        return;
+    }
+    if (action === 'go-main') {
+        switchPage('page-main');
+        document.getElementById('page-main')?.scrollTo({ top: 0 });
+        return;
+    }
+    if (action === 'exit') {
+        await exit(0);
+        return;
+    }
+
+    armBackExitConfirmation();
+}
+
+async function initAndroidBackNavigation() {
+    if (runtimeInfo.platform !== 'android') return;
+    try {
+        await onBackButtonPress(() => {
+            void handleAndroidBackPress();
+        });
+    } catch (error) {
+        console.error('Android back-button handler registration failed:', error);
+    }
 }
 
 let heroTextTimer: number | null = null;
@@ -1596,7 +1677,7 @@ function renderAboutPage() {
                 ${t('patch_notes')}
             </h3>
             
-            <div class="patch-scroll-area">${renderPatchNotes(t('about_text_2'))}</div>
+            <div class="patch-scroll-area">${renderProjectChangelog(projectChangelog)}</div>
         `;
     }
 }
@@ -1939,6 +2020,7 @@ async function init() {
     await loadSensitiveState();
 
     document.documentElement.classList.toggle('platform-android', runtimeInfo.platform === 'android');
+    await initAndroidBackNavigation();
     document.getElementById('btn-close-search-modal')?.addEventListener('click', () => searchModal?.close());
     document.getElementById('btn-close-route-action-modal')?.addEventListener('click', () => {
         (document.getElementById('route-action-modal') as HTMLDialogElement | null)?.close();

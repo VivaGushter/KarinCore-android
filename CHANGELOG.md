@@ -4,6 +4,21 @@ All notable Android-port changes are tracked here.
 
 ## Unreleased
 
+## [0.1.0-alpha.27] - 2026-10-08
+
+Android back navigation and project release history.
+
+### Added
+- Added application-wide handling for the Android system Back button: dialogs and drawers close first, every secondary section returns to the main screen, and the main screen requires a second press within 2.2 seconds before exiting.
+- Added a localized confirmation message after the first Back press on the main screen.
+
+### Changed
+- Replaced the inherited upstream update text on the About page with the actual KarinCore Android release history embedded from this repository's `CHANGELOG.md`.
+- Structured About-page releases into separate version, summary, category and change blocks.
+
+### Tests
+- Added regression coverage for secondary-page navigation, overlay priority, double-press exit confirmation and project changelog rendering.
+
 ## [0.1.0-alpha.26] - 2026-10-08
 
 Android Xray geodata installation repair.
