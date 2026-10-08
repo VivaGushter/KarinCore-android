@@ -1,6 +1,6 @@
 # Phase 3 status
 
-Current version: `0.1.0-alpha.28`
+Current version: `0.1.0-alpha.29`
 
 ## Completed
 
@@ -15,13 +15,14 @@ Current version: `0.1.0-alpha.28`
 9. Runtime version/update metadata.
 10. UI state restoration from the foreground VPN service after Activity/WebView recreation.
 11. Android Always-on VPN restart persistence and system lockdown settings integration.
-12. CI-validated arm64 debug APK pipeline.
+12. CI-validated split debug APK pipeline for all four Android ABIs.
 13. Built-in VPN self-test for native service/Xray/TUN/proxy-path/external-IP validation.
 14. V2RayTun subscription routing import for both object and top-level array payloads, with an in-app active-route indicator.
 15. Read-only visualization of the effective subscription route, connection state and ordered Xray rules.
 16. Offline installation of bundled Xray `geoip.dat` and `geosite.dat` before Android core startup.
 17. Application-wide Android Back navigation with main-screen exit confirmation and repository-backed release history in About.
 18. Android home-screen VPN widget backed by the encrypted last successful connection.
+19. Split APK publication for `arm64-v8a`, `armeabi-v7a`, `x86` and `x86_64` with per-ABI native-library checks.
 
 ## Planned
 

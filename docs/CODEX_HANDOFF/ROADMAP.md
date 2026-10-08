@@ -1,6 +1,6 @@
 # KarinCore Android: development roadmap
 
-Current baseline: `0.1.0-alpha.28`.
+Current baseline: `0.1.0-alpha.29`.
 
 Основная стратегия: сначала доказать стабильность существующего Android core на реальном устройстве, затем расширять transports. Добавление функций без runtime validation на этом этапе имеет меньшую ценность.
 
@@ -187,12 +187,14 @@ OpenVPN является следующим крупным отсутствую�
 
 ## P5. Multi-ABI
 
-После arm64 stabilization:
+Реализовано в alpha.29:
 
-- armv7 if still desired
-- x86_64 for emulator/testing
+- отдельные APK для `arm64-v8a`, `armeabi-v7a`, `x86` и `x86_64`
+- соответствующие Rust targets
+- проверка обеих нативных библиотек для каждого ABI в CI
+- публикация всех четырёх APK в одном prerelease
 
-Не расширять ABI до стабилизации arm64, если это только увеличивает CI cost.
+Runtime-проверка дополнительных ABI остаётся частью release regression matrix.
 
 ## P6. UX polish
 

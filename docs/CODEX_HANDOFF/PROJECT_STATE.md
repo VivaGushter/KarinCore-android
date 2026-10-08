@@ -8,16 +8,16 @@ KarinCore Android является Android-портом проекта `detester
 
 - GitHub: `VivaGushter/KarinCore-android`
 - Основная ветка: `main`
-- Текущая версия: `0.1.0-alpha.28`
-- Android `versionCode`: `28`
-- Release code baseline: tag `v0.1.0-alpha.28`
+- Текущая версия: `0.1.0-alpha.29`
+- Android `versionCode`: `29`
+- Release code baseline: tag `v0.1.0-alpha.29`
 - База upstream: KarinCore 1.3.7
 - Upstream commit: `b7fea2e2ff5e1492fd863381985fdebb4da7a57e`
 - Package ID: `com.vivagushter.karincore`
 - Android minSdk: 24
-- Основной выпускаемый ABI на текущем этапе: `arm64-v8a`
+- Выпускаемые ABI: `arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`
 
-Версия `v0.1.0-alpha.28` опубликована как GitHub prerelease. Полный Android CI и Repository checks проходят успешно. Release APK имеет размер примерно 73.7 MB после отключения native debug info и strip Rust symbols.
+Версия `v0.1.0-alpha.29` опубликована как GitHub prerelease. Полный Android CI и Repository checks проходят успешно. Release содержит отдельный debug APK для каждого поддерживаемого ABI.
 
 ## 2. Технологический стек
 
@@ -385,7 +385,7 @@ Updater читает `VERSION` из main и сравнивает SemVer с ус�
 Release automation:
 
 - release commit должен начинаться с `release:`
-- Android CI собирает arm64 debug APK
+- Android CI собирает отдельные debug APK для всех четырёх Android ABI
 - создаёт tag
 - создаёт GitHub prerelease для prerelease SemVer
 - берёт release notes из CHANGELOG
@@ -405,17 +405,17 @@ Android build:
 - Ubuntu runner
 - Java 17
 - Node 22
-- Android API 36
+- Android API 37
 - Build Tools 36.0.0
 - NDK 27.0.12077973
 - stable Rust
-- target `aarch64-linux-android`
+- targets `aarch64-linux-android`, `armv7-linux-androideabi`, `i686-linux-android`, `x86_64-linux-android`
 - npm cache
 - Rust cache
 - Gradle cache
 - download pinned Xray AAR
 - Tauri Android init
-- arm64 debug APK
+- split debug APKs for all four Android ABIs
 - artifact upload
 - release publication for release commits
 
@@ -426,7 +426,7 @@ Android build:
     npm run version:check
     npm run build
     npm run tauri -- android init --ci --skip-targets-install
-    npm run tauri -- android build --apk --target aarch64 --debug --ci
+    npm run tauri -- android build --apk --target aarch64 armv7 i686 x86_64 --split-per-abi --debug --ci
 
 ## 16. Versioning
 
@@ -434,15 +434,15 @@ Android port имеет независимую SemVer ветку.
 
 Текущая версия:
 
-`0.1.0-alpha.28`
+`0.1.0-alpha.29`
 
 Следующий обычный prerelease:
 
-`0.1.0-alpha.29`
+`0.1.0-alpha.30`
 
 Следующий versionCode:
 
-`29`
+`30`
 
 Release bump должен синхронно менять:
 
@@ -495,7 +495,7 @@ Release bump должен синхронно менять:
 - Kotlin/Gradle compilation
 - Android SDK/NDK path
 - Xray AAR download + hash
-- complete arm64 debug APK
+- complete split debug APKs for all four Android ABIs
 - release pipeline
 
 На реальном устройстве подтверждено:
@@ -517,7 +517,7 @@ Release bump должен синхронно менять:
 - per-app routing на разных Android/OEM
 - release signing
 - production/release APK/AAB
-- additional ABI builds
+- additional ABI runtime validation
 - store readiness
 - automated unit/integration tests
 - крупные файлы `src-tauri/src/lib.rs` и `src/main.ts` требуют постепенной модульной декомпозиции

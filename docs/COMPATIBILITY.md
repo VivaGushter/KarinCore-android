@@ -5,7 +5,7 @@
 | Item | Current status |
 | --- | --- |
 | Android | Minimum API 24 (Android 7.0); target API 37 |
-| Distributed ABI | `arm64-v8a` only |
+| Distributed ABI | Separate `arm64-v8a`, `armeabi-v7a`, `x86` and `x86_64` APKs |
 | Package ID | `com.vivagushter.karincore` |
 | VPN engine | Android `VpnService` with embedded Xray |
 | Distribution | GitHub prerelease APK |
@@ -39,7 +39,7 @@ The Android version range is a build-time compatibility target, not a completed 
 
 ## Known limitations
 
-- Only arm64 APKs are produced by the current public workflow.
+- ABI packaging is compile- and contents-validated in CI; runtime validation on representative 32-bit ARM and x86 environments is still pending.
 - The published prerelease APK is debug-signed and is intended for testing, not production distribution.
 - A debug APK produced on a different build machine may use a different signing certificate. Android can require uninstalling the previous build before installation, which removes application data.
 - OpenVPN chaining is unavailable on Android.

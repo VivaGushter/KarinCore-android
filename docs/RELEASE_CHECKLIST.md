@@ -1,11 +1,11 @@
 # Release checklist
 
-This checklist defines the remaining work for the first production release. The current alpha workflow produces a debug-signed arm64 test APK and must not be treated as the stable release pipeline.
+This checklist defines the remaining work for the first production release. The current alpha workflow produces debug-signed split APKs and must not be treated as the stable release pipeline.
 
 ## 1. Release scope
 
 - [ ] Decide whether OpenVPN is deferred and record the decision in release notes.
-- [ ] Confirm that the first release is arm64-only or add and test the required ABIs.
+- [x] Produce separate `arm64-v8a`, `armeabi-v7a`, `x86` and `x86_64` APKs and verify their native libraries in CI.
 - [ ] Choose GitHub Releases, Google Play, or both as distribution channels.
 - [ ] Freeze the supported Android range and known limitations in [COMPATIBILITY.md](COMPATIBILITY.md).
 - [ ] Close or explicitly defer every P0/P1 crash, connection, DNS or traffic-leak issue.
@@ -28,6 +28,7 @@ Record device model, OEM, Android version, profile type, network type and result
 - [ ] Lockdown does not silently bypass traffic during startup or failure.
 - [ ] IPv4 and IPv6 behavior matches the selected route and does not expose an unintended path.
 - [ ] Activity recreation, backgrounding and foreground notification actions work.
+- [ ] Install and connect the `armeabi-v7a`, `x86` and `x86_64` builds on representative devices or emulators.
 - [ ] Exported diagnostics contain useful state and no known secrets.
 
 Minimum recommended coverage: one AOSP/Pixel device, one Samsung device and one device with an aggressive OEM background policy such as Xiaomi/HyperOS.
@@ -39,7 +40,7 @@ Minimum recommended coverage: one AOSP/Pixel device, one Samsung device and one 
 - [ ] Store only encrypted/base64 keystore material and passwords in GitHub Secrets.
 - [ ] Add a dedicated non-debug Gradle/Tauri release build.
 - [ ] Ensure secrets are available only to the protected release job and never to pull requests.
-- [ ] Produce a signed arm64 release APK and, if needed, an AAB.
+- [ ] Produce signed split release APKs and, if needed, an AAB.
 - [ ] Verify the artifact with `apksigner verify --verbose --print-certs`.
 - [ ] Record the signing certificate SHA-256 fingerprint in release notes.
 - [ ] Test clean installation and an in-place upgrade signed by the same key.

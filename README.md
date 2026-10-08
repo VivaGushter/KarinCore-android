@@ -2,7 +2,7 @@
   <img src="src-tauri/icons/icon.png" alt="KarinCore" width="160"/>
   <h1>KarinCore Android</h1>
   <p>Android port of KarinCore powered by Tauri 2, Rust, Android VpnService and Xray-core.</p>
-  <p><strong>Current version: 0.1.0-alpha.28</strong></p>
+  <p><strong>Current version: 0.1.0-alpha.29</strong></p>
   <p><a href="README-ru.md">Русская версия</a></p>
 </div>
 
@@ -12,9 +12,9 @@ This repository is an experimental Android port of [detestern/KarinCore](https:/
 
 The shared KarinCore TypeScript UI and Rust parsing/routing logic are retained. Linux-specific tunnel setup is replaced on Android by a native `VpnService` bridge and Xray TUN integration.
 
-Version `0.1.0-alpha.28` is distributed as an arm64 debug APK through GitHub prereleases. Real-device runtime validation is the next verification step.
+Version `0.1.0-alpha.29` is distributed as separate debug APKs for `arm64-v8a`, `armeabi-v7a`, `x86` and `x86_64` through GitHub prereleases. Real-device runtime validation is the next verification step.
 
-## Implemented through 0.1.0-alpha.28
+## Implemented through 0.1.0-alpha.29
 
 - Tauri 2 mobile entry point.
 - Native Android `VpnService`.
@@ -41,6 +41,7 @@ Version `0.1.0-alpha.28` is distributed as an arm64 debug APK through GitHub pre
 - The About page embeds this repository's own `CHANGELOG.md`, so its release history follows KarinCore Android releases instead of inherited upstream notes.
 - A compact Android home-screen widget connects or disconnects the last successfully used VPN profile with one tap. Its power icon is gray while disconnected, pink while connecting and green while connected.
 - Widget reconnect data is encrypted with Android Keystore. Initial use requires granting VPN permission and completing one successful connection in the application. Android Always-on VPN remains controlled through system VPN settings.
+- Every prerelease contains split APKs for `arm64-v8a`, `armeabi-v7a`, `x86` and `x86_64`; CI verifies that each artifact contains the matching KarinCore and Xray native libraries.
 - Runtime version/update metadata comes from the Rust package version instead of frontend hardcoded values.
 - Android package-visibility query explicitly exposes launcher applications to the per-app selector on Android 11+.
 - Network recovery handles both make-before-break and break-before-make transitions.
@@ -62,6 +63,15 @@ Not implemented yet on Android: OpenVPN chaining and additional real-device runt
 The 1×1 `KarinCore VPN switch` widget uses the last profile that connected successfully in the application. Complete one normal connection first, then add the widget from the Android launcher widget picker.
 
 A tap connects or disconnects the VPN. Gray means disconnected, pink means connecting and green means connected. If VPN permission has not been granted or no successful profile is stored, the widget opens KarinCore to finish setup. When Android Always-on VPN is enabled, a disconnect tap opens system VPN settings because applications are not allowed to disable that mode directly.
+
+## APK architecture
+
+- `arm64-v8a`: almost all current Android phones and tablets.
+- `armeabi-v7a`: older 32-bit ARM devices.
+- `x86_64`: 64-bit Intel/AMD Android emulators and compatible devices.
+- `x86`: older 32-bit x86 emulators and devices.
+
+Installing the APK for the wrong architecture is rejected by Android without replacing the installed application.
 
 ## Release documentation
 

@@ -2,7 +2,7 @@
 
 ## Current alpha builds
 
-GitHub prereleases currently contain debug-signed arm64 APKs. Debug signing is not a stable update channel: APKs built on different machines may have different certificates. If Android reports that the package conflicts with an installed application or that the update is incompatible, the old build must be removed before installing the new APK.
+GitHub prereleases currently contain separate debug-signed APKs for `arm64-v8a`, `armeabi-v7a`, `x86` and `x86_64`. Debug signing is not a stable update channel: APKs built on different machines may have different certificates. If Android reports that the package conflicts with an installed application or that the update is incompatible, the old build must be removed before installing the new APK.
 
 Uninstalling the application removes its private profiles, subscription URLs, routing settings and Android Keystore entries. Export any routing profiles and retain original subscription URLs and credentials before uninstalling. There is currently no complete encrypted backup/restore format for all application state.
 

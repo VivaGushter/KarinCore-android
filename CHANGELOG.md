@@ -4,6 +4,19 @@ All notable Android-port changes are tracked here.
 
 ## Unreleased
 
+## [0.1.0-alpha.29] - 2026-10-08
+
+Full Android ABI packaging.
+
+### Added
+- Added separate APK builds for `arm64-v8a`, `armeabi-v7a`, `x86` and `x86_64` to every Android prerelease.
+- Added per-ABI CI validation for the KarinCore Rust library and AndroidLibXrayLite native library inside each APK.
+
+### Changed
+- Updated the Android workflow to install all four Rust Android targets and build split APKs instead of an arm64-only artifact.
+- Made Android API 37 installation explicit in CI to match the generated application target SDK.
+- Updated release publication to attach and consistently name all four architecture-specific APKs.
+
 ## [0.1.0-alpha.28] - 2026-10-08
 
 One-tap Android home-screen VPN widget.

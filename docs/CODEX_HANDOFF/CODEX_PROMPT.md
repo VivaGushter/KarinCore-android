@@ -24,14 +24,14 @@
 
 Baseline на момент handoff:
 
-- version `0.1.0-alpha.28`
-- versionCode `28`
-- HEAD tagged as `v0.1.0-alpha.28`
-- release `v0.1.0-alpha.28`
-- arm64 debug APK около 73.7 MB
+- version `0.1.0-alpha.29`
+- versionCode `29`
+- HEAD tagged as `v0.1.0-alpha.29`
+- release `v0.1.0-alpha.29`
+- split debug APKs for `arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`
 - Repository checks green
 - Android build green
-- next normal version: `0.1.0-alpha.29`, versionCode 29
+- next normal version: `0.1.0-alpha.30`, versionCode 30
 
 ## 2. Архитектурные правила
 
@@ -165,17 +165,20 @@ Android system TUN остаётся единственным TUN.
     npm run version:check
     npm run build
     npm run tauri -- android init --ci --skip-targets-install
-    npm run tauri -- android build --apk --target aarch64 --debug --ci
+    npm run tauri -- android build --apk --target aarch64 armv7 i686 x86_64 --split-per-abi --debug --ci
 
 CI environment:
 
 - Java 17
 - Node 22
-- Android API 36
+- Android API 37
 - Build Tools 36.0.0
 - NDK 27.0.12077973
 - Rust stable
 - aarch64-linux-android
+- armv7-linux-androideabi
+- i686-linux-android
+- x86_64-linux-android
 
 Не заявляй, что Android runtime работает, только потому что CI собрал APK.
 
@@ -287,8 +290,8 @@ Android уже использует единственный VpnService/TUN.
 
 Если `main` всё ещё `0.1.0-alpha.22`, следующий release номер:
 
-- `0.1.0-alpha.28`
-- Android versionCode `28`
+- `0.1.0-alpha.29`
+- Android versionCode `29`
 
 Если repo уже обновился, определить следующий номер из актуального `VERSION`.
 

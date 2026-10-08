@@ -24,10 +24,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  arm64-debug:
-    name: Android arm64 debug APK
+  android-debug:
+    name: Android multi-ABI debug APKs
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     env:
       ANDROID_HOME: /usr/local/lib/android/sdk
@@ -52,7 +52,7 @@ jobs:
           yes | "$SDKMANAGER" --licenses >/dev/null || true
 
           for attempt in 1 2 3; do
-            if "$SDKMANAGER" "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;27.0.12077973"; then
+            if "$SDKMANAGER" "platform-tools" "platforms;android-36" "platforms;android-37" "build-tools;36.0.0" "ndk;27.0.12077973"; then
               break
             fi
 
@@ -72,7 +72,7 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
         with:
-          targets: aarch64-linux-android
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
 
       - name: Cache Rust
         uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
@@ -97,27 +97,39 @@ jobs:
       - name: Initialize Tauri Android project
         run: npm run tauri -- android init --ci --skip-targets-install
 
-      - name: Build arm64 debug APK
-        run: npm run tauri -- android build --apk --target aarch64 --debug --ci
+      - name: Build split debug APKs for every ABI
+        run: npm run tauri -- android build --apk --target aarch64 armv7 i686 x86_64 --split-per-abi --debug --ci
 
-      - name: Verify Xray geodata assets
+      - name: Verify ABI, Xray geodata and widget resources
         shell: bash
         run: |
           set -euo pipefail
-          APK="$(find src-tauri/gen/android/app/build/outputs -type f -name '*.apk' | head -n 1)"
-          test -n "$APK"
-          unzip -Z1 "$APK" | grep -Fx 'assets/geoip.dat'
-          unzip -Z1 "$APK" | grep -Fx 'assets/geosite.dat'
+          OUTPUTS="src-tauri/gen/android/app/build/outputs"
+          find_apk_for_abi() {
+            local root="$1" abi="$2" candidate
+            while IFS= read -r candidate; do
+              if unzip -Z1 "$candidate" | grep -Fx "lib/${abi}/libkarin_proxy_lib.so" >/dev/null; then
+                printf '%s\n' "$candidate"
+                return 0
+              fi
+            done < <(find "$root" -type f -name '*.apk')
+            return 1
+          }
 
-      - name: Verify home-screen widget resources
-        shell: bash
-        run: |
-          set -euo pipefail
-          APK="$(find src-tauri/gen/android/app/build/outputs -type f -name '*.apk' | head -n 1)"
-          test -n "$APK"
-          unzip -Z1 "$APK" | grep -Fx 'res/layout/karin_vpn_widget.xml'
-          unzip -Z1 "$APK" | grep -Fx 'res/xml/karin_vpn_widget_info.xml'
-          "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest print "$APK" | grep -F 'com.vivagushter.karincore.vpn.KarinVpnWidgetProvider'
+          for ABI in arm64-v8a armeabi-v7a x86 x86_64; do
+            if ! APK="$(find_apk_for_abi "$OUTPUTS" "$ABI")"; then
+              echo "Missing APK for $ABI"
+              exit 1
+            fi
+
+            unzip -Z1 "$APK" | grep -Fx "lib/${ABI}/libkarin_proxy_lib.so"
+            unzip -Z1 "$APK" | grep -Fx "lib/${ABI}/libgojni.so"
+            unzip -Z1 "$APK" | grep -Fx 'assets/geoip.dat'
+            unzip -Z1 "$APK" | grep -Fx 'assets/geosite.dat'
+            unzip -Z1 "$APK" | grep -Fx 'res/layout/karin_vpn_widget.xml'
+            unzip -Z1 "$APK" | grep -Fx 'res/xml/karin_vpn_widget_info.xml'
+            "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest print "$APK" | grep -F 'com.vivagushter.karincore.vpn.KarinVpnWidgetProvider'
+          done
 
       - name: List APK outputs
         if: always()
@@ -129,7 +141,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: KarinCore-Android-${{ github.sha }}-arm64-debug
+          name: KarinCore-Android-${{ github.sha }}-multi-abi-debug
           path: |
             src-tauri/gen/android/app/build/outputs/**/*.apk
           if-no-files-found: error
@@ -137,7 +149,7 @@ jobs:
 
   publish-release:
     name: Publish GitHub prerelease
-    needs: arm64-debug
+    needs: android-debug
     # Debug-signed APKs are test artifacts. Publishing requires either the
     # repository opt-in or an explicit marker in the release commit itself.
     if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'release:') && (vars.ALLOW_DEBUG_PRERELEASE == 'true' || contains(github.event.head_commit.message, '[publish-debug]'))
@@ -151,7 +163,7 @@ jobs:
       - name: Download verified build artifact
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
-          name: KarinCore-Android-${{ github.sha }}-arm64-debug
+          name: KarinCore-Android-${{ github.sha }}-multi-abi-debug
           path: release-artifact
 
       - name: Publish GitHub release
@@ -163,15 +175,28 @@ jobs:
 
           VERSION="$(tr -d '[:space:]' < VERSION)"
           TAG="v${VERSION}"
-          APK="$(find release-artifact -type f -name '*.apk' | head -n 1)"
+          find_apk_for_abi() {
+            local root="$1" abi="$2" candidate
+            while IFS= read -r candidate; do
+              if unzip -Z1 "$candidate" | grep -Fx "lib/${abi}/libkarin_proxy_lib.so" >/dev/null; then
+                printf '%s\n' "$candidate"
+                return 0
+              fi
+            done < <(find "$root" -type f -name '*.apk')
+            return 1
+          }
 
-          if [ -z "$APK" ]; then
-            echo "APK not found"
-            exit 1
-          fi
+          RELEASE_APKS=()
+          for ABI in arm64-v8a armeabi-v7a x86 x86_64; do
+            if ! APK="$(find_apk_for_abi release-artifact "$ABI")"; then
+              echo "APK not found for $ABI"
+              exit 1
+            fi
 
-          RELEASE_APK="KarinCore-Android-v${VERSION}-arm64-debug.apk"
-          cp "$APK" "$RELEASE_APK"
+            RELEASE_APK="KarinCore-Android-v${VERSION}-${ABI}-debug.apk"
+            cp "$APK" "$RELEASE_APK"
+            RELEASE_APKS+=("$RELEASE_APK")
+          done
 
           awk -v version="$VERSION" '
             index($0, "## [" version "]") == 1 { active=1; next }
@@ -184,14 +209,14 @@ jobs:
           fi
 
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$RELEASE_APK" --clobber
+            gh release upload "$TAG" "${RELEASE_APKS[@]}" --clobber
           else
             EXTRA_ARGS=()
             if [[ "$VERSION" == *-* ]]; then
               EXTRA_ARGS+=(--prerelease)
             fi
 
-            gh release create "$TAG" "$RELEASE_APK" \
+            gh release create "$TAG" "${RELEASE_APKS[@]}" \
               --target "$GITHUB_SHA" \
               --title "KarinCore Android v${VERSION}" \
               --notes-file release-notes.md \
