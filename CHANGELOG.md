@@ -4,6 +4,19 @@ All notable Android-port changes are tracked here.
 
 ## Unreleased
 
+## [0.1.0-alpha.25] - 2026-10-08
+
+Visible effective subscription routing.
+
+### Added
+- Added an effective subscription-route panel with source group, selected server, rule count, default outbound and provider metadata.
+- Added explicit `Applied now` and `Ready for connection` states tied to the native VPN connection and active profile.
+- Rendered every provider rule in original Xray evaluation order, including all domain, IP, port and other match fields.
+
+### Changed
+- Direct / Proxy / Block cards now display the selected subscription's effective route in read-only mode instead of continuing to show unrelated local rules.
+- Provider routes disable local editing, priority dragging and route export while they override the local routing configuration.
+
 ## [0.1.0-alpha.24] - 2026-10-08
 
 V2RayTun routing compatibility and Android route-priority layout repair.

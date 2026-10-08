@@ -82,7 +82,7 @@
     </div>
     
     <div class="sidebar-footer" id="sidebar-footer">
-      <div class="app-version-text">v 0.1.0-alpha.24</div>
+      <div class="app-version-text">v 0.1.0-alpha.25</div>
       <div id="update-status" class="update-status"></div>
     </div>
   </div>
@@ -218,10 +218,23 @@
         </button>
       </div>
       
-      <p class="section-description" data-i18n="routing_hint">
+      <p id="routing-description" class="section-description" data-i18n="routing_hint">
         Перетаскивайте колонки для изменения приоритета (слева направо). Кликните на фон, чтобы сделать маршрутом по умолчанию.
       </p>
       <div id="provider-routing-notice" class="provider-routing-notice" hidden></div>
+      <section id="provider-routing-panel" class="provider-routing-panel" hidden>
+        <div class="provider-routing-panel-header">
+          <div>
+            <div class="provider-routing-panel-title" data-i18n="provider_routing_title">Маршрут подписки</div>
+            <div id="provider-routing-source" class="provider-routing-source"></div>
+          </div>
+          <span id="provider-routing-status" class="provider-routing-status"></span>
+        </div>
+        <p id="provider-routing-explanation" class="provider-routing-explanation"></p>
+        <div id="provider-routing-meta" class="provider-routing-meta"></div>
+        <div class="provider-routing-order-note" data-i18n="provider_routing_order_note">Правила проверяются сверху вниз. Первое совпавшее правило определяет направление трафика.</div>
+        <div id="provider-routing-rules" class="provider-routing-rules"></div>
+      </section>
       
       <div class="links-list routing-content" style="padding-bottom: 30px;">
         <div class="setting-card routing-option-card">

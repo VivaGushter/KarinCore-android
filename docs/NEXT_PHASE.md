@@ -1,6 +1,6 @@
 # Phase 3 status
 
-Current version: `0.1.0-alpha.24`
+Current version: `0.1.0-alpha.25`
 
 ## Completed
 
@@ -18,6 +18,7 @@ Current version: `0.1.0-alpha.24`
 12. CI-validated arm64 debug APK pipeline.
 13. Built-in VPN self-test for native service/Xray/TUN/proxy-path/external-IP validation.
 14. V2RayTun subscription routing import for both object and top-level array payloads, with an in-app active-route indicator.
+15. Read-only visualization of the effective subscription route, connection state and ordered Xray rules.
 
 ## Planned
 

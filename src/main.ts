@@ -21,6 +21,13 @@ interface RoutingMap {
     _domainStrategy?: string;
     _domainMatcher?: string;
 }
+interface ProviderRoutingContext {
+    group: ProxyGroup;
+    link: ProxyLink;
+    routing: RoutingMap;
+    rules: ProviderRoutingRule[];
+    applied: boolean;
+}
 type AppRoutingMode = 'all' | 'allowlist' | 'denylist';
 interface InstalledApp { label: string; packageName: string; system: boolean; }
 interface RuntimeInfo { platform: 'android' | 'desktop'; version: string; updateRepo: string; }
@@ -799,6 +806,7 @@ async function refreshSubscriptionGroup(groupId: string) {
 
         saveData();
         renderLinks();
+        renderRouting();
         updateHeroProfileName();
         typeKarinMessage('karin_add_link');
         alert(t('subscription_refresh_ok'));
@@ -867,6 +875,7 @@ async function connectProxy(link: string) {
             saveData();
             updateStatusUI(); 
             renderLinks(); 
+            renderRouting();
             typeKarinMessage('karin_connect_ok');
         }
     } catch (error) { 
@@ -895,6 +904,7 @@ async function disconnectProxy() {
     sessionStorage.removeItem('karin_active_link'); 
     updateStatusUI(); 
     renderLinks(); 
+    renderRouting();
     typeKarinMessage('karin_disconnect');
 }
 
@@ -1071,6 +1081,7 @@ function updateStatusUI() {
         }
         if(statusIpBox) statusIpBox.style.display = "none";
     }
+    renderProviderRoutingView();
 }
 
 async function refreshVpnIp() {
@@ -1102,18 +1113,35 @@ async function runPing() {
     }
 }
 
+function getProviderRoutingContext(): ProviderRoutingContext | null {
+    const connectionActive = nativeVpnRunning
+        || nativeVpnStarting
+        || nativeVpnCoreRunning
+        || nativeVpnReconnecting
+        || !!activeLink;
+    const displayedUrl = connectionActive && activeLink ? activeLink : selectedProfileUrl;
+    const link = appLinks.find(item => item.url === displayedUrl);
+    const group = link?.groupId ? appGroups.find(item => item.id === link.groupId) : undefined;
+    const routing = group?.providerRouting;
+    const rules = routing?._providerRules;
+
+    if (!link || !group || !routing || !Array.isArray(rules) || rules.length === 0) return null;
+    return { group, link, routing, rules, applied: connectionActive && activeLink === link.url };
+}
+
 function updateDefaultOutboundUI() { 
+    const effectiveDefaultOutbound: ZoneKey = getProviderRoutingContext() ? 'proxy' : defaultOutbound;
     columns.forEach(col => { 
         const zone = col.dataset.zone; 
-        if (zone === defaultOutbound) col.classList.add('active-default'); 
+        if (zone === effectiveDefaultOutbound) col.classList.add('active-default');
         else col.classList.remove('active-default'); 
     }); 
     
     if (defaultOutboundLabel) { 
-        defaultOutboundLabel.innerText = defaultOutbound.charAt(0).toUpperCase() + defaultOutbound.slice(1); 
-        if(defaultOutbound === 'direct') defaultOutboundLabel.style.color = 'var(--success)'; 
-        if(defaultOutbound === 'proxy') defaultOutboundLabel.style.color = 'var(--accent)'; 
-        if(defaultOutbound === 'block') defaultOutboundLabel.style.color = 'var(--danger)'; 
+        defaultOutboundLabel.innerText = effectiveDefaultOutbound.charAt(0).toUpperCase() + effectiveDefaultOutbound.slice(1);
+        if(effectiveDefaultOutbound === 'direct') defaultOutboundLabel.style.color = 'var(--success)';
+        if(effectiveDefaultOutbound === 'proxy') defaultOutboundLabel.style.color = 'var(--accent)';
+        if(effectiveDefaultOutbound === 'block') defaultOutboundLabel.style.color = 'var(--danger)';
     } 
 }
 
@@ -1239,6 +1267,7 @@ function renderLinkItem(item: ProxyLink) {
 function renderLinks() {
     if(!linksContainer) return;
     linksContainer.innerHTML = '';
+    renderProviderRoutingView();
     
     if (appLinks.length === 0) { 
      linksContainer.innerHTML = `
@@ -1294,7 +1323,7 @@ function renderLinks() {
     appLinks.filter(l => l.groupId === null && !l.pinned).forEach(l => html += renderLinkItem(l));
   
     linksContainer.innerHTML = html;
-    renderProviderRoutingNotice();
+    renderProviderRoutingView();
     
     document.querySelectorAll('.edit-checkbox[data-group-id]').forEach(cb => {
         cb.addEventListener('click', event => event.stopPropagation());
@@ -1312,56 +1341,147 @@ function renderLinks() {
     });
 }
 
-function renderProviderRoutingNotice() {
+function formatProviderRuleValue(value: unknown): string {
+    if (Array.isArray(value)) return value.map(item => String(item)).join('\n');
+    if (value && typeof value === 'object') return JSON.stringify(value);
+    return String(value);
+}
+
+function renderProviderRoutingView() {
     const notice = document.getElementById('provider-routing-notice');
-    if (!notice) return;
+    const panel = document.getElementById('provider-routing-panel');
+    const source = document.getElementById('provider-routing-source');
+    const status = document.getElementById('provider-routing-status');
+    const explanation = document.getElementById('provider-routing-explanation');
+    const meta = document.getElementById('provider-routing-meta');
+    const rulesContainer = document.getElementById('provider-routing-rules');
+    if (!notice || !panel || !source || !status || !explanation || !meta || !rulesContainer) return;
 
-    const selectedLink = appLinks.find(link => link.url === selectedProfileUrl);
-    const group = selectedLink?.groupId
-        ? appGroups.find(item => item.id === selectedLink.groupId)
-        : undefined;
-    const rules = group?.providerRouting?._providerRules;
-    const ruleCount = Array.isArray(rules) ? rules.length : 0;
-
-    if (!group?.providerRouting || ruleCount === 0) {
+    const context = getProviderRoutingContext();
+    if (!context) {
         notice.hidden = true;
+        panel.hidden = true;
         notice.textContent = '';
+        rulesContainer.replaceChildren();
         return;
     }
 
     notice.hidden = false;
-    notice.textContent = `${t('subscription_routing_active')} · ${ruleCount} ${t('subscription_routing_rules')}`;
+    panel.hidden = false;
+    const statusKey = context.applied ? 'provider_routing_applied' : 'provider_routing_pending';
+    notice.textContent = `${t(statusKey)} · ${context.rules.length} ${t('subscription_routing_rules')}`;
+    source.textContent = `${t('provider_routing_source')}: ${context.group.name} · ${getLinkDisplayName(context.link.url)}`;
+    status.textContent = t(statusKey);
+    status.className = `provider-routing-status ${context.applied ? 'is-applied' : 'is-pending'}`;
+    explanation.textContent = t(context.applied
+        ? 'provider_routing_applied_desc'
+        : 'provider_routing_pending_desc');
+
+    meta.replaceChildren();
+    const metadata: Array<[string, string]> = [
+        [t('provider_routing_default'), 'Proxy'],
+        [t('provider_routing_rule_count'), String(context.rules.length)]
+    ];
+    if (context.routing._domainStrategy) metadata.push(['domainStrategy', context.routing._domainStrategy]);
+    if (context.routing._domainMatcher) metadata.push(['domainMatcher', context.routing._domainMatcher]);
+    metadata.forEach(([label, value]) => {
+        const item = document.createElement('div');
+        item.className = 'provider-routing-meta-item';
+        const key = document.createElement('span');
+        key.textContent = label;
+        const content = document.createElement('strong');
+        content.textContent = value;
+        item.append(key, content);
+        meta.appendChild(item);
+    });
+
+    rulesContainer.replaceChildren();
+    context.rules.forEach((rule, index) => {
+        const card = document.createElement('article');
+        card.className = `provider-rule-card provider-rule-${rule.outboundTag}`;
+        const header = document.createElement('div');
+        header.className = 'provider-rule-header';
+        const number = document.createElement('strong');
+        number.textContent = `${t('provider_routing_rule')} ${index + 1}`;
+        const outbound = document.createElement('span');
+        outbound.className = `provider-rule-outbound outbound-${rule.outboundTag}`;
+        outbound.textContent = `→ ${rule.outboundTag.toUpperCase()}`;
+        header.append(number, outbound);
+        card.appendChild(header);
+
+        const fields = document.createElement('div');
+        fields.className = 'provider-rule-fields';
+        Object.entries(rule).forEach(([key, value]) => {
+            if (key === 'type' || key === 'outboundTag') return;
+            const row = document.createElement('div');
+            row.className = 'provider-rule-field';
+            const label = document.createElement('span');
+            label.textContent = key;
+            const content = document.createElement('code');
+            content.textContent = formatProviderRuleValue(value);
+            row.append(label, content);
+            fields.appendChild(row);
+        });
+        if (!fields.childElementCount) {
+            const fallback = document.createElement('div');
+            fallback.className = 'provider-rule-catch-all';
+            fallback.textContent = t('provider_routing_all_traffic');
+            fields.appendChild(fallback);
+        }
+        card.appendChild(fields);
+        rulesContainer.appendChild(card);
+    });
 }
 
 function renderRouting() { 
+    const context = getProviderRoutingContext();
+    const visibleRouting = context?.routing || routingState;
+    const grid = document.getElementById('routing-grid');
+    const description = document.getElementById('routing-description');
+    const routeAction = document.getElementById('btn-route-action') as HTMLButtonElement | null;
+    grid?.classList.toggle('provider-routing-mode', !!context);
+    if (routeAction) routeAction.hidden = !!context;
+    if (description) {
+        description.setAttribute('data-i18n', context ? 'provider_routing_readonly' : 'routing_hint');
+        description.textContent = t(context ? 'provider_routing_readonly' : 'routing_hint');
+    }
+
     Object.keys(zones).forEach(key => { 
         const zone = zones[key as keyof typeof zones]; 
         if(zone) { 
             zone.replaceChildren();
-            const addButton = document.createElement('button');
-            addButton.className = 'btn-add';
-            addButton.dataset.zone = key;
-            addButton.textContent = '+';
-            zone.appendChild(addButton);
-            if (routingState[key as ZoneKey]) {
-                routingState[key as ZoneKey].forEach((rule: any) => { 
-                    const el = document.createElement('div'); 
-                    el.className = 'tag-item'; 
-                    el.appendChild(document.createTextNode(`${String(rule.value)} `));
-                    const deleteButton = document.createElement('span');
-                    deleteButton.className = 'btn-delete-tag';
-                    deleteButton.dataset.tag = String(rule.value);
-                    deleteButton.dataset.zone = key;
-                    deleteButton.style.pointerEvents = 'auto';
-                    deleteButton.textContent = '×';
-                    el.appendChild(deleteButton);
+            const column = zone.closest<HTMLElement>('.route-column');
+            if (column) column.draggable = !context;
+            if (!context) {
+                const addButton = document.createElement('button');
+                addButton.className = 'btn-add';
+                addButton.dataset.zone = key;
+                addButton.textContent = '+';
+                zone.appendChild(addButton);
+            }
+            if (visibleRouting[key as ZoneKey]) {
+                visibleRouting[key as ZoneKey].forEach((rule: RoutingRule) => {
+                    const el = document.createElement('div');
+                    el.className = `tag-item${context ? ' provider-tag-item' : ''}`;
+                    el.appendChild(document.createTextNode(String(rule.value)));
+                    if (!context) {
+                        el.appendChild(document.createTextNode(' '));
+                        const deleteButton = document.createElement('span');
+                        deleteButton.className = 'btn-delete-tag';
+                        deleteButton.dataset.tag = String(rule.value);
+                        deleteButton.dataset.zone = key;
+                        deleteButton.style.pointerEvents = 'auto';
+                        deleteButton.textContent = '×';
+                        el.appendChild(deleteButton);
+                    }
                     zone.appendChild(el); 
                 }); 
             }
         }
     }); 
     localStorage.setItem('karin_routing', JSON.stringify(routingState));
-    renderProviderRoutingNotice();
+    updateDefaultOutboundUI();
+    renderProviderRoutingView();
 }
 
 function renderRoutingProfiles() {
@@ -1782,6 +1902,7 @@ async function pollAndroidVpnState() {
 
         renderAndroidSystemVpnStatus();
         updateStatusUI();
+        renderRouting();
 
         if (status.lastError) {
             console.debug('Native VPN runtime error:', status.lastError);
@@ -1900,6 +2021,7 @@ async function init() {
             updateUIStrings(); 
             renderLinks(); 
             updateStatusUI(); 
+            renderRouting();
             renderAboutPage();
             renderRoutingProfiles();
             checkApplicationUpdates();
@@ -1989,6 +2111,7 @@ async function init() {
         if (document.visibilityState === 'visible') {
             void restoreAndroidVpnState().then(() => {
                 updateStatusUI();
+                renderRouting();
                 lastNativeStatusSignature = '';
                 startAndroidVpnStateMonitor();
             });
@@ -2272,7 +2395,11 @@ document.addEventListener('click', async (e) => {
     const target = e.target as HTMLElement;
   
     const col = target.closest('.route-column');
-    if (col && !target.closest('.btn-add') && !target.closest('.btn-delete-tag') && !target.closest('.tag-item')) {
+    if (col
+        && !document.getElementById('routing-grid')?.classList.contains('provider-routing-mode')
+        && !target.closest('.btn-add')
+        && !target.closest('.btn-delete-tag')
+        && !target.closest('.tag-item')) {
       defaultOutbound = (col as HTMLElement).dataset.zone as ZoneKey;
       localStorage.setItem('karin_default_outbound', defaultOutbound); 
       updateDefaultOutboundUI();
@@ -2303,6 +2430,7 @@ document.addEventListener('click', async (e) => {
         selectedProfileUrl = url;
         saveData();
         renderLinks();
+        renderRouting();
         updateHeroProfileName();
         profilesDrawer?.close();
     }
