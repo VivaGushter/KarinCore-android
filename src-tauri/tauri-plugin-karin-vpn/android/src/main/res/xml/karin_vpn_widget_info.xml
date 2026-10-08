@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:initialLayout="@layout/karin_vpn_widget"
+    android:minWidth="56dp"
+    android:minHeight="56dp"
+    android:minResizeWidth="56dp"
+    android:minResizeHeight="56dp"
+    android:resizeMode="none"
+    android:updatePeriodMillis="0"
+    android:widgetCategory="home_screen" />

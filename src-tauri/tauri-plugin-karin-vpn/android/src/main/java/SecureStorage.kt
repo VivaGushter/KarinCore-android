@@ -75,6 +75,7 @@ internal class SecureStorage(context: Context) {
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
         private val KEY_LOCK = Any()
         const val VPN_CONNECTION_KEY = "vpn_connection"
+        const val WIDGET_CONNECTION_KEY = "widget_connection"
         const val PROFILE_STATE_KEY = "profile_state"
     }
 }

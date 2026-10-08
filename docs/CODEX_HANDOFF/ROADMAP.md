@@ -1,6 +1,6 @@
 # KarinCore Android: development roadmap
 
-Current baseline: `0.1.0-alpha.27`.
+Current baseline: `0.1.0-alpha.28`.
 
 Основная стратегия: сначала доказать стабильность существующего Android core на реальном устройстве, затем расширять transports. Добавление функций без runtime validation на этом этапе имеет меньшую ценность.
 

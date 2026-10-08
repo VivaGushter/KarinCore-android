@@ -9,4 +9,12 @@
     <string name="notification_always_on">Постоянная VPN включена</string>
     <string name="notification_disconnect">Отключить</string>
     <string name="notification_vpn_settings">Настройки VPN</string>
+    <string name="widget_name">Переключатель KarinCore VPN</string>
+    <string name="widget_connected">VPN подключён. Нажмите, чтобы отключить.</string>
+    <string name="widget_connecting">Подключение VPN</string>
+    <string name="widget_disconnected">VPN отключён. Нажмите, чтобы подключить.</string>
+    <string name="widget_permission_required">Сначала откройте KarinCore и разрешите VPN-подключение</string>
+    <string name="widget_profile_required">Сначала подключитесь в KarinCore, чтобы выбрать профиль для виджета</string>
+    <string name="widget_start_failed">Android не разрешил запустить VPN в фоне. Откройте KarinCore для подключения.</string>
+    <string name="widget_always_on">Постоянная VPN изменяется только в системных настройках Android</string>
 </resources>

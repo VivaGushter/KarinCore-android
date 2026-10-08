@@ -1,6 +1,6 @@
 # Phase 3 status
 
-Current version: `0.1.0-alpha.27`
+Current version: `0.1.0-alpha.28`
 
 ## Completed
 
@@ -21,6 +21,7 @@ Current version: `0.1.0-alpha.27`
 15. Read-only visualization of the effective subscription route, connection state and ordered Xray rules.
 16. Offline installation of bundled Xray `geoip.dat` and `geosite.dat` before Android core startup.
 17. Application-wide Android Back navigation with main-screen exit confirmation and repository-backed release history in About.
+18. Android home-screen VPN widget backed by the encrypted last successful connection.
 
 ## Planned
 

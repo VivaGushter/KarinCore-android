@@ -109,6 +109,16 @@ jobs:
           unzip -Z1 "$APK" | grep -Fx 'assets/geoip.dat'
           unzip -Z1 "$APK" | grep -Fx 'assets/geosite.dat'
 
+      - name: Verify home-screen widget resources
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$(find src-tauri/gen/android/app/build/outputs -type f -name '*.apk' | head -n 1)"
+          test -n "$APK"
+          unzip -Z1 "$APK" | grep -Fx 'res/layout/karin_vpn_widget.xml'
+          unzip -Z1 "$APK" | grep -Fx 'res/xml/karin_vpn_widget_info.xml'
+          "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest print "$APK" | grep -F 'com.vivagushter.karincore.vpn.KarinVpnWidgetProvider'
+
       - name: List APK outputs
         if: always()
         shell: bash

@@ -4,6 +4,20 @@ All notable Android-port changes are tracked here.
 
 ## Unreleased
 
+## [0.1.0-alpha.28] - 2026-10-08
+
+One-tap Android home-screen VPN widget.
+
+### Added
+- Added a compact 1×1 home-screen widget that connects or disconnects KarinCore with one tap and displays distinct disconnected, connecting and connected colors.
+- Added encrypted storage for the last successfully connected widget profile, including its routing mode, selected applications and MTU.
+- Added localized guidance when the widget needs the initial Android VPN permission or a first successful in-app connection.
+
+### Reliability
+- Reused the existing foreground `VpnService` and status state instead of creating a second VPN control path.
+- Preserved Android Always-on VPN guarantees: the widget opens system VPN settings instead of attempting a forbidden disconnect.
+- Added an Android CI gate that verifies the widget provider and resources are packaged in the APK.
+
 ## [0.1.0-alpha.27] - 2026-10-08
 
 Android back navigation and project release history.

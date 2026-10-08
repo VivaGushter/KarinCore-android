@@ -9,4 +9,12 @@
     <string name="notification_always_on">Always-on VPN is enabled</string>
     <string name="notification_disconnect">Disconnect</string>
     <string name="notification_vpn_settings">VPN settings</string>
+    <string name="widget_name">KarinCore VPN switch</string>
+    <string name="widget_connected">VPN connected. Tap to disconnect.</string>
+    <string name="widget_connecting">VPN connecting</string>
+    <string name="widget_disconnected">VPN disconnected. Tap to connect.</string>
+    <string name="widget_permission_required">Open KarinCore and allow the VPN connection first</string>
+    <string name="widget_profile_required">Connect once in KarinCore to select a profile for the widget</string>
+    <string name="widget_start_failed">Android could not start VPN in the background. Open KarinCore to connect.</string>
+    <string name="widget_always_on">Always-on VPN can only be changed in Android VPN settings</string>
 </resources>

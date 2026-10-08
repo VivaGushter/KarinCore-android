@@ -68,7 +68,10 @@ class KarinVpnService : VpnService() {
             .put("appRoutingMode", appRoutingMode)
             .put("appPackages", JSONArray(appPackages))
             .toString()
-        SecureStorage(this).put(SecureStorage.VPN_CONNECTION_KEY, payload)
+        SecureStorage(this).apply {
+            put(SecureStorage.VPN_CONNECTION_KEY, payload)
+            put(SecureStorage.WIDGET_CONNECTION_KEY, payload)
+        }
     }
 
     private fun loadPersistedConnection(): PersistedConnection? {
@@ -117,6 +120,7 @@ class KarinVpnService : VpnService() {
                         stopTunnel(stopService = true)
                     }
                 }
+                updateHomeScreenWidget()
             }
             ACTION_START -> {
                 val configJson = intent.getStringExtra(EXTRA_CONFIG_JSON).orEmpty()
@@ -131,6 +135,7 @@ class KarinVpnService : VpnService() {
                 recordLog("INFO", "VPN start requested; appRouting=$appRoutingMode, selectedApps=${appPackages.size}")
                 starting = true
                 lastError = null
+                updateHomeScreenWidget()
 
                 worker.execute {
                     try {
@@ -142,6 +147,7 @@ class KarinVpnService : VpnService() {
                         stopTunnel(stopService = true)
                     } finally {
                         starting = false
+                        updateHomeScreenWidget()
                     }
                 }
             }
@@ -161,6 +167,7 @@ class KarinVpnService : VpnService() {
                     )
                     starting = true
                     lastError = null
+                    updateHomeScreenWidget()
 
                     worker.execute {
                         try {
@@ -180,6 +187,7 @@ class KarinVpnService : VpnService() {
                             stopTunnel(stopService = true)
                         } finally {
                             starting = false
+                            updateHomeScreenWidget()
                         }
                     }
                 }
@@ -312,6 +320,7 @@ class KarinVpnService : VpnService() {
             lastError = null
             registerNetworkMonitor()
             updateNotification(getString(R.string.notification_connected))
+            updateHomeScreenWidget()
             recordLog("INFO", "VPN started, fd=${pfd.fd}, core=$coreVersion")
         }
     }
@@ -533,6 +542,7 @@ class KarinVpnService : VpnService() {
             recordLog("WARN", "TUN close failed: ${t.message ?: t.javaClass.simpleName}", t)
         }
         vpnInterface = null
+        updateHomeScreenWidget()
 
         if (stopService) {
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -552,8 +562,13 @@ class KarinVpnService : VpnService() {
             stopTunnelLocked(stopService = false)
         }
         if (instance === this) instance = null
+        updateHomeScreenWidget()
         worker.shutdownNow()
         super.onDestroy()
+    }
+
+    private fun updateHomeScreenWidget() {
+        KarinVpnWidgetProvider.updateAll(this)
     }
 
     private fun startInForeground(text: String) {
@@ -692,6 +707,33 @@ class KarinVpnService : VpnService() {
 
         fun refreshSystemStatus() {
             instance?.refreshSystemVpnFlags()
+        }
+
+        fun widgetStartIntent(context: android.content.Context): Intent? {
+            val payload = SecureStorage(context).get(SecureStorage.WIDGET_CONNECTION_KEY) ?: return null
+            val persisted = try {
+                val json = JSONObject(payload)
+                val packages = json.optJSONArray("appPackages") ?: JSONArray()
+                PersistedConnection(
+                    configJson = json.getString("configJson").takeIf { it.isNotBlank() } ?: return null,
+                    mtu = json.optInt("mtu", 1500).coerceIn(1280, 9000),
+                    appRoutingMode = json.optString("appRoutingMode", "all"),
+                    appPackages = (0 until packages.length()).mapNotNull {
+                        packages.optString(it).takeIf(String::isNotBlank)
+                    }
+                )
+            } catch (_: Exception) {
+                SecureStorage(context).remove(SecureStorage.WIDGET_CONNECTION_KEY)
+                return null
+            }
+
+            return Intent(context, KarinVpnService::class.java).apply {
+                action = ACTION_START
+                putExtra(EXTRA_CONFIG_JSON, persisted.configJson)
+                putExtra(EXTRA_MTU, persisted.mtu)
+                putExtra(EXTRA_APP_ROUTING_MODE, persisted.appRoutingMode)
+                putStringArrayListExtra(EXTRA_APP_PACKAGES, ArrayList(persisted.appPackages))
+            }
         }
 
         const val ACTION_START = "com.vivagushter.karincore.vpn.START"
