@@ -6,11 +6,11 @@
 
 - Repository: `VivaGushter/KarinCore-android`
 - Branch: `main`
-- Version: `0.1.0-alpha.29`
-- Android versionCode: `29`
-- Release code baseline: tag `v0.1.0-alpha.29`
+- Version: `0.1.0-alpha.30`
+- Android versionCode: `30`
+- Release code baseline: tag `v0.1.0-alpha.30`
 - Upstream base: `detestern/KarinCore` 1.3.7, commit `b7fea2e2ff5e1492fd863381985fdebb4da7a57e`
-- Current Android release: `v0.1.0-alpha.29`
+- Current Android release: `v0.1.0-alpha.30`
 - Current release APKs: split debug builds for `arm64-v8a`, `armeabi-v7a`, `x86` and `x86_64`
 - Repository checks: passing
 - Android CI build: passing

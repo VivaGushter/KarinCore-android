@@ -49,6 +49,19 @@ interface VpnRuntimeStatus {
     coreVersion?: string | null;
     lastError?: string | null;
 }
+interface AndroidStabilityDiagnostics {
+    vpnPermissionGranted: boolean;
+    notificationsGranted: boolean;
+    batteryOptimizationExempt: boolean;
+    backgroundRestricted: boolean;
+    dataSaverStatus: 'disabled' | 'whitelisted' | 'enabled';
+    networkAvailable: boolean;
+    networkValidated: boolean;
+    alwaysOn: boolean;
+    lockdown: boolean;
+    sdkInt: number;
+    manufacturer: string;
+}
 interface SubscriptionResult { links: string[]; importedRouting?: RoutingMap; importedDns?: { domestic?: DnsConfig; remote?: DnsConfig }; routingOverride?: boolean; }
 interface SensitiveState { groups: ProxyGroup[]; links: ProxyLink[]; selectedProfileUrl: string | null; }
 
@@ -253,6 +266,10 @@ const btnImportFile = document.getElementById('btn-import-file') as HTMLButtonEl
 const importFileInput = document.getElementById('import-file-input') as HTMLInputElement | null;
 const toggleServerProxy = document.getElementById('toggle-server-proxy') as HTMLInputElement | null;
 const androidAppRoutingSection = document.getElementById('android-app-routing-section') as HTMLDivElement | null;
+const androidStabilitySection = document.getElementById('android-stability-section') as HTMLDivElement | null;
+const androidStabilitySummary = document.getElementById('android-stability-summary') as HTMLDivElement | null;
+const androidStabilityList = document.getElementById('android-stability-list') as HTMLDivElement | null;
+const androidStabilityRefresh = document.getElementById('android-stability-refresh') as HTMLButtonElement | null;
 const appRoutingModeSelect = document.getElementById('android-app-routing-mode') as HTMLSelectElement | null;
 const appRoutingChoose = document.getElementById('android-app-routing-choose') as HTMLButtonElement | null;
 const appRoutingSummary = document.getElementById('android-app-routing-summary') as HTMLSpanElement | null;
@@ -495,7 +512,7 @@ window.addEventListener('gestureend', (e) => { e.preventDefault(); e.stopPropaga
 // INTERNATIONALIZATION (i18n)
 // **********************************
 function t(key: string): string { 
-    return translations[currentLang]?.[key] || key; 
+    return translations[currentLang]?.[key] || translations.en?.[key] || key;
 }
 
 function updateUIStrings() {
@@ -1035,6 +1052,9 @@ function switchPage(pageId: string) {
     } else { 
         if (logInterval) { clearInterval(logInterval); logInterval = null; } 
     } 
+    if (pageId === 'page-settings' && runtimeInfo.platform === 'android') {
+        void refreshAndroidStabilityDiagnostics();
+    }
 }
 
 const ANDROID_EXIT_CONFIRMATION_MS = 2200;
@@ -1882,6 +1902,151 @@ function renderAndroidSystemVpnStatus() {
     }
 }
 
+type StabilityLevel = 'ok' | 'warning' | 'info';
+
+interface StabilityItem {
+    title: string;
+    detail: string;
+    level: StabilityLevel;
+    action?: 'vpn' | 'vpn_settings' | 'notifications' | 'battery' | 'background' | 'data_saver';
+}
+
+let stabilityRefreshInFlight = false;
+
+function appendStabilityItem(item: StabilityItem) {
+    if (!androidStabilityList) return;
+
+    const row = document.createElement('div');
+    row.className = 'stability-item';
+
+    const copy = document.createElement('div');
+    copy.className = 'stability-item-copy';
+    const title = document.createElement('div');
+    title.className = 'stability-item-title';
+    title.textContent = item.title;
+    const detail = document.createElement('div');
+    detail.className = 'stability-item-detail';
+    detail.textContent = item.detail;
+    copy.append(title, detail);
+
+    const side = document.createElement('div');
+    side.className = 'stability-item-side';
+    const badge = document.createElement('span');
+    badge.className = `stability-badge is-${item.level}`;
+    badge.textContent = t(`settings_stability_badge_${item.level}`);
+    side.appendChild(badge);
+
+    if (item.action) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'small-btn stability-action';
+        button.dataset.stabilityAction = item.action;
+        button.textContent = t(item.action === 'vpn'
+            ? 'settings_stability_grant'
+            : 'settings_stability_open');
+        side.appendChild(button);
+    }
+
+    row.append(copy, side);
+    androidStabilityList.appendChild(row);
+}
+
+async function refreshAndroidStabilityDiagnostics() {
+    if (runtimeInfo.platform !== 'android' || stabilityRefreshInFlight) return;
+    if (androidStabilitySection) androidStabilitySection.style.display = 'flex';
+    if (!androidStabilityList || !androidStabilitySummary) return;
+
+    stabilityRefreshInFlight = true;
+    if (androidStabilityRefresh) androidStabilityRefresh.disabled = true;
+    androidStabilitySummary.className = 'stability-summary';
+    androidStabilitySummary.textContent = t('settings_stability_checking');
+
+    try {
+        const state = await invoke<AndroidStabilityDiagnostics>('get_android_stability_diagnostics');
+        const dataSaverOk = state.dataSaverStatus !== 'enabled';
+        const issues = [
+            !state.vpnPermissionGranted,
+            !state.notificationsGranted,
+            !state.batteryOptimizationExempt,
+            state.backgroundRestricted,
+            !dataSaverOk,
+            !state.networkAvailable || !state.networkValidated
+        ].filter(Boolean).length;
+
+        androidStabilitySummary.className = `stability-summary ${issues === 0 ? 'is-ok' : 'is-warning'}`;
+        androidStabilitySummary.textContent = issues === 0
+            ? t('settings_stability_all_ok')
+            : t('settings_stability_issues').replace('{count}', String(issues));
+        androidStabilityList.replaceChildren();
+
+        appendStabilityItem({
+            title: t('settings_stability_vpn'),
+            detail: t(state.vpnPermissionGranted ? 'settings_stability_vpn_ok' : 'settings_stability_vpn_missing'),
+            level: state.vpnPermissionGranted ? 'ok' : 'warning',
+            action: state.vpnPermissionGranted ? undefined : 'vpn'
+        });
+        appendStabilityItem({
+            title: t('settings_stability_notifications'),
+            detail: t(state.notificationsGranted ? 'settings_stability_notifications_ok' : 'settings_stability_notifications_missing'),
+            level: state.notificationsGranted ? 'ok' : 'warning',
+            action: state.notificationsGranted ? undefined : 'notifications'
+        });
+        appendStabilityItem({
+            title: t('settings_stability_battery'),
+            detail: t(state.batteryOptimizationExempt ? 'settings_stability_battery_ok' : 'settings_stability_battery_warning'),
+            level: state.batteryOptimizationExempt ? 'ok' : 'warning',
+            action: state.batteryOptimizationExempt ? undefined : 'battery'
+        });
+        appendStabilityItem({
+            title: t('settings_stability_background'),
+            detail: t(state.backgroundRestricted ? 'settings_stability_background_warning' : 'settings_stability_background_ok'),
+            level: state.backgroundRestricted ? 'warning' : 'ok',
+            action: state.backgroundRestricted ? 'background' : undefined
+        });
+        appendStabilityItem({
+            title: t('settings_stability_data_saver'),
+            detail: t(`settings_stability_data_saver_${state.dataSaverStatus}`),
+            level: dataSaverOk ? 'ok' : 'warning',
+            action: dataSaverOk ? undefined : 'data_saver'
+        });
+        appendStabilityItem({
+            title: t('settings_stability_network'),
+            detail: t(!state.networkAvailable
+                ? 'settings_stability_network_missing'
+                : state.networkValidated
+                    ? 'settings_stability_network_ok'
+                    : 'settings_stability_network_unvalidated'),
+            level: state.networkAvailable && state.networkValidated ? 'ok' : 'warning'
+        });
+        appendStabilityItem({
+            title: t('settings_stability_always_on'),
+            detail: t(state.lockdown
+                ? 'settings_stability_lockdown_on'
+                : state.alwaysOn
+                    ? 'settings_stability_always_on_enabled'
+                    : 'settings_stability_always_on_optional'),
+            level: state.alwaysOn ? 'ok' : 'info',
+            action: state.alwaysOn ? undefined : 'vpn_settings'
+        });
+        const manufacturer = state.manufacturer.trim();
+        if (manufacturer) {
+            appendStabilityItem({
+                title: t('settings_stability_oem').replace('{manufacturer}', manufacturer),
+                detail: t('settings_stability_oem_note'),
+                level: 'info',
+                action: 'background'
+            });
+        }
+    } catch (error) {
+        androidStabilityList.replaceChildren();
+        androidStabilitySummary.className = 'stability-summary is-warning';
+        androidStabilitySummary.textContent = `${t('settings_stability_failed')}: ${String(error)}`;
+    } finally {
+        stabilityRefreshInFlight = false;
+        if (androidStabilityRefresh) androidStabilityRefresh.disabled = false;
+    }
+}
+
 async function initAndroidAppRouting() {
     try {
         const apps = await invoke<InstalledApp[]>('get_installed_apps');
@@ -2030,6 +2195,10 @@ async function init() {
     }
     renderAndroidSystemVpnStatus();
     await restoreAndroidVpnState();
+    if (runtimeInfo.platform === 'android') {
+        if (androidStabilitySection) androidStabilitySection.style.display = 'flex';
+        void refreshAndroidStabilityDiagnostics();
+    }
     startAndroidVpnStateMonitor();
 
     const versionNodes = document.querySelectorAll('.app-version-text');
@@ -2106,6 +2275,7 @@ async function init() {
             renderRouting();
             renderAboutPage();
             renderRoutingProfiles();
+            void refreshAndroidStabilityDiagnostics();
             checkApplicationUpdates();
         });
     });
@@ -2187,6 +2357,30 @@ async function init() {
         }
     });
 
+    androidStabilityRefresh?.addEventListener('click', () => {
+        void refreshAndroidStabilityDiagnostics();
+    });
+
+    androidStabilityList?.addEventListener('click', async (event) => {
+        const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-stability-action]');
+        if (!button) return;
+        const action = button.dataset.stabilityAction;
+        button.disabled = true;
+        try {
+            if (action === 'vpn') {
+                await invoke<boolean>('request_android_vpn_permission');
+                await refreshAndroidStabilityDiagnostics();
+                return;
+            }
+            const target = action === 'vpn_settings' ? 'vpn' : action;
+            await invoke<boolean>('open_android_stability_settings', { target });
+        } catch (error) {
+            alert(`${t('settings_stability_settings_error')}: ${String(error)}`);
+        } finally {
+            button.disabled = false;
+        }
+    });
+
     document.addEventListener('visibilitychange', () => {
         if (runtimeInfo.platform !== 'android') return;
 
@@ -2197,6 +2391,7 @@ async function init() {
                 lastNativeStatusSignature = '';
                 startAndroidVpnStateMonitor();
             });
+            void refreshAndroidStabilityDiagnostics();
         } else if (nativeStatusInterval !== null) {
             window.clearInterval(nativeStatusInterval);
             nativeStatusInterval = null;

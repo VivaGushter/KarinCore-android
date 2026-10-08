@@ -103,6 +103,28 @@ pub struct OpenSettingsResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct OpenStabilitySettingsRequest {
+    pub target: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StabilityDiagnosticsResult {
+    pub vpn_permission_granted: bool,
+    pub notifications_granted: bool,
+    pub battery_optimization_exempt: bool,
+    pub background_restricted: bool,
+    pub data_saver_status: String,
+    pub network_available: bool,
+    pub network_validated: bool,
+    pub always_on: bool,
+    pub lockdown: bool,
+    pub sdk_int: u32,
+    pub manufacturer: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FetchTextRequest {
     pub url: String,
     #[serde(default = "default_fetch_timeout_ms")]

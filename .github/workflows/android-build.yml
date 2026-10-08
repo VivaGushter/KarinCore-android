@@ -100,7 +100,7 @@ jobs:
       - name: Build split debug APKs for every ABI
         run: npm run tauri -- android build --apk --target aarch64 armv7 i686 x86_64 --split-per-abi --debug --ci
 
-      - name: Verify ABI, Xray geodata and widget resources
+      - name: Verify ABI, Xray geodata, permissions and widget resources
         shell: bash
         run: |
           set -euo pipefail
@@ -128,7 +128,9 @@ jobs:
             unzip -Z1 "$APK" | grep -Fx 'assets/geosite.dat'
             unzip -Z1 "$APK" | grep -Fx 'res/layout/karin_vpn_widget.xml'
             unzip -Z1 "$APK" | grep -Fx 'res/xml/karin_vpn_widget_info.xml'
-            "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest print "$APK" | grep -F 'com.vivagushter.karincore.vpn.KarinVpnWidgetProvider'
+            MANIFEST="$("$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest print "$APK")"
+            grep -F 'com.vivagushter.karincore.vpn.KarinVpnWidgetProvider' <<< "$MANIFEST"
+            grep -F 'android.permission.POST_NOTIFICATIONS' <<< "$MANIFEST"
           done
 
       - name: List APK outputs

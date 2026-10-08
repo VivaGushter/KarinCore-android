@@ -4,6 +4,19 @@ All notable Android-port changes are tracked here.
 
 ## Unreleased
 
+## [0.1.0-alpha.30] - 2026-10-08
+
+Android permissions and stability diagnostics.
+
+### Added
+- Added a live Settings diagnostic for VPN consent, foreground-service notifications, battery optimization, background restrictions, Data Saver, network availability/validation and Android Always-on/lockdown state.
+- Added direct actions from each warning to the matching Android system settings screen, plus the standard VPN permission dialog and a manual refresh action.
+- Added an explicit OEM background-controls note because vendor auto-start and sleeping-app policies cannot be queried through the standard Android API.
+
+### Reliability
+- Declared the Android 13+ notification permission used by foreground-service notifications.
+- Kept battery handling compatible with store policy by opening the normal optimization settings instead of requesting direct exemption through a sensitive permission.
+
 ## [0.1.0-alpha.29] - 2026-10-08
 
 Full Android ABI packaging.

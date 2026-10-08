@@ -82,7 +82,7 @@
     </div>
     
     <div class="sidebar-footer" id="sidebar-footer">
-      <div class="app-version-text">v 0.1.0-alpha.29</div>
+      <div class="app-version-text">v 0.1.0-alpha.30</div>
       <div id="update-status" class="update-status"></div>
     </div>
   </div>
@@ -393,6 +393,13 @@
         <div class="setting-card-description" data-i18n="settings_android_kill_switch_note">Use Android Always-on VPN and Block connections without VPN for system-level protection.</div>
         <div id="android-system-vpn-status" style="margin-top:8px; font-size:11px; color:var(--text-dim);"></div>
         <button id="android-vpn-settings-btn" class="small-btn" type="button" style="margin-top:10px;" data-i18n="settings_android_open_vpn">Open VPN settings</button>
+      </div>
+      <div id="android-stability-section" class="setting-card settings-detail-card android-stability-card" style="display:none;">
+        <div class="setting-card-title" data-i18n="settings_stability_title">Permissions and stability</div>
+        <div class="setting-card-description" data-i18n="settings_stability_desc">Live diagnostics for Android settings that affect reliable background VPN operation.</div>
+        <div id="android-stability-summary" class="stability-summary" role="status" aria-live="polite"></div>
+        <div id="android-stability-list" class="stability-diagnostics"></div>
+        <button id="android-stability-refresh" class="small-btn stability-refresh" type="button" data-i18n="settings_stability_refresh">Check again</button>
       </div>
       <div id="android-app-routing-section" class="setting-card settings-detail-card" style="display:none;">
         <div class="setting-card-title" data-i18n="settings_app_routing_title">Per-app VPN</div>

@@ -1,6 +1,6 @@
 # Phase 3 status
 
-Current version: `0.1.0-alpha.29`
+Current version: `0.1.0-alpha.30`
 
 ## Completed
 
@@ -23,6 +23,7 @@ Current version: `0.1.0-alpha.29`
 17. Application-wide Android Back navigation with main-screen exit confirmation and repository-backed release history in About.
 18. Android home-screen VPN widget backed by the encrypted last successful connection.
 19. Split APK publication for `arm64-v8a`, `armeabi-v7a`, `x86` and `x86_64` with per-ABI native-library checks.
+20. Live Android permission and stability diagnostics with targeted system-settings actions.
 
 ## Planned
 

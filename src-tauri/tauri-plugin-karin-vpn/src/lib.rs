@@ -4,9 +4,9 @@ mod models;
 pub use error::{Error, Result};
 pub use models::{
     ClearLogsResult, DeviceInfoResult, FetchTextRequest, FetchTextResult, InstalledApp,
-    InstalledAppsResult, LogsResult, OpenSettingsResult, PrepareResult, SaveDocumentRequest,
-    SaveDocumentResult, SecureStateRequest, SecureStateResult, SecureStateSaveResult, StartRequest,
-    VpnStatus,
+    InstalledAppsResult, LogsResult, OpenSettingsResult, OpenStabilitySettingsRequest,
+    PrepareResult, SaveDocumentRequest, SaveDocumentResult, SecureStateRequest, SecureStateResult,
+    SecureStateSaveResult, StabilityDiagnosticsResult, StartRequest, VpnStatus,
 };
 
 use tauri::{plugin::TauriPlugin, Manager, Runtime};
@@ -154,6 +154,36 @@ impl<R: Runtime> KarinVpn<R> {
             .map_err(Error::from)
     }
 
+    #[cfg(target_os = "android")]
+    pub fn stability_diagnostics(&self) -> Result<StabilityDiagnosticsResult> {
+        self.mobile_plugin_handle
+            .run_mobile_plugin("stabilityDiagnostics", ())
+            .map_err(Error::from)
+    }
+
+    #[cfg(not(target_os = "android"))]
+    pub fn stability_diagnostics(&self) -> Result<StabilityDiagnosticsResult> {
+        Err(Error::UnsupportedPlatform)
+    }
+
+    #[cfg(target_os = "android")]
+    pub fn open_stability_settings(
+        &self,
+        request: OpenStabilitySettingsRequest,
+    ) -> Result<OpenSettingsResult> {
+        self.mobile_plugin_handle
+            .run_mobile_plugin("openStabilitySettings", request)
+            .map_err(Error::from)
+    }
+
+    #[cfg(not(target_os = "android"))]
+    pub fn open_stability_settings(
+        &self,
+        _request: OpenStabilitySettingsRequest,
+    ) -> Result<OpenSettingsResult> {
+        Err(Error::UnsupportedPlatform)
+    }
+
     #[cfg(not(target_os = "android"))]
     pub fn open_vpn_settings(&self) -> Result<OpenSettingsResult> {
         Err(Error::UnsupportedPlatform)
@@ -246,6 +276,21 @@ async fn open_vpn_settings<R: Runtime>(app: tauri::AppHandle<R>) -> Result<OpenS
 }
 
 #[tauri::command]
+async fn stability_diagnostics<R: Runtime>(
+    app: tauri::AppHandle<R>,
+) -> Result<StabilityDiagnosticsResult> {
+    app.karin_vpn().stability_diagnostics()
+}
+
+#[tauri::command]
+async fn open_stability_settings<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    request: OpenStabilitySettingsRequest,
+) -> Result<OpenSettingsResult> {
+    app.karin_vpn().open_stability_settings(request)
+}
+
+#[tauri::command]
 async fn stop<R: Runtime>(app: tauri::AppHandle<R>) -> Result<VpnStatus> {
     app.karin_vpn().stop()
 }
@@ -292,6 +337,8 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             fetch_text,
             device_info,
             open_vpn_settings,
+            stability_diagnostics,
+            open_stability_settings,
             stop,
             status,
             save_secure_state,

@@ -1068,6 +1068,117 @@ button.danger {
     margin: 0;
 }
 
+.android-stability-card {
+    gap: 0;
+}
+
+.stability-summary {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-dim);
+    font-size: 12px;
+    line-height: 1.45;
+    background: color-mix(in srgb, var(--base-mantle) 88%, transparent);
+}
+
+.stability-summary.is-ok {
+    border-color: color-mix(in srgb, var(--success) 58%, var(--border-color));
+    color: var(--success);
+}
+
+.stability-summary.is-warning {
+    border-color: color-mix(in srgb, var(--danger) 58%, var(--border-color));
+    color: var(--danger);
+}
+
+.stability-diagnostics {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.stability-item {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px 12px;
+    align-items: center;
+    padding: 11px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 9px;
+    background: var(--base-mantle);
+}
+
+.stability-item-copy {
+    min-width: 0;
+}
+
+.stability-item-title {
+    color: var(--text-color);
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.35;
+}
+
+.stability-item-detail {
+    margin-top: 3px;
+    color: var(--text-dim);
+    font-size: 11px;
+    line-height: 1.45;
+}
+
+.stability-item-side {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 7px;
+}
+
+.stability-badge {
+    padding: 3px 7px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 700;
+    white-space: nowrap;
+    background: color-mix(in srgb, var(--text-dim) 15%, transparent);
+    color: var(--text-dim);
+}
+
+.stability-badge.is-ok {
+    background: color-mix(in srgb, var(--success) 15%, transparent);
+    color: var(--success);
+}
+
+.stability-badge.is-warning {
+    background: color-mix(in srgb, var(--danger) 15%, transparent);
+    color: var(--danger);
+}
+
+.stability-action {
+    min-height: 30px;
+    padding: 5px 9px;
+    font-size: 10px;
+}
+
+.stability-refresh {
+    align-self: flex-start;
+    margin-top: 10px;
+}
+
+@media (max-width: 430px) {
+    .stability-item {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .stability-item-side {
+        flex-direction: row;
+        justify-content: space-between;
+        align-items: center;
+    }
+}
+
 .route-column {
     background-color: var(--base-mantle);
     padding: 14px;

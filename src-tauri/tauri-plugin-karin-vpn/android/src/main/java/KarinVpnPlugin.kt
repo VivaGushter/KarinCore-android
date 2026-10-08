@@ -1,12 +1,18 @@
 package com.vivagushter.karincore.vpn
 
 import android.app.Activity
+import android.app.ActivityManager
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.net.Uri
 import android.net.VpnService
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.os.SystemClock
 import android.provider.Settings
 import java.io.ByteArrayOutputStream
@@ -20,6 +26,7 @@ import java.util.zip.GZIPInputStream
 import javax.net.ssl.SSLException
 import androidx.activity.result.ActivityResult
 import androidx.core.content.ContextCompat
+import androidx.core.app.NotificationManagerCompat
 import app.tauri.annotation.ActivityCallback
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
@@ -54,6 +61,11 @@ class FetchTextArgs {
 @InvokeArg
 class SecureStateArgs {
     lateinit var content: String
+}
+
+@InvokeArg
+class OpenStabilitySettingsArgs {
+    lateinit var target: String
 }
 
 @TauriPlugin
@@ -463,6 +475,78 @@ class KarinVpnPlugin(private val activity: Activity) : Plugin(activity) {
             invoke.resolve(JSObject().apply { put("opened", true) })
         } catch (ex: Exception) {
             invoke.reject(ex.message ?: "Unable to open Android VPN settings")
+        }
+    }
+
+    @Command
+    fun stabilityDiagnostics(invoke: Invoke) {
+        try {
+            KarinVpnService.refreshSystemStatus()
+            val connectivity = activity.getSystemService(ConnectivityManager::class.java)
+            val activeNetwork = connectivity?.activeNetwork
+            val capabilities = if (connectivity != null && activeNetwork != null) {
+                connectivity.getNetworkCapabilities(activeNetwork)
+            } else {
+                null
+            }
+            val powerManager = activity.getSystemService(PowerManager::class.java)
+            val activityManager = activity.getSystemService(ActivityManager::class.java)
+            val notificationsGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                ContextCompat.checkSelfPermission(
+                    activity,
+                    android.Manifest.permission.POST_NOTIFICATIONS
+                ) == PackageManager.PERMISSION_GRANTED
+            } else {
+                NotificationManagerCompat.from(activity).areNotificationsEnabled()
+            }
+            val dataSaverStatus = when (connectivity?.restrictBackgroundStatus) {
+                ConnectivityManager.RESTRICT_BACKGROUND_STATUS_ENABLED -> "enabled"
+                ConnectivityManager.RESTRICT_BACKGROUND_STATUS_WHITELISTED -> "whitelisted"
+                else -> "disabled"
+            }
+
+            invoke.resolve(JSObject().apply {
+                put("vpnPermissionGranted", VpnService.prepare(activity) == null)
+                put("notificationsGranted", notificationsGranted)
+                put("batteryOptimizationExempt", powerManager?.isIgnoringBatteryOptimizations(activity.packageName) == true)
+                put("backgroundRestricted", if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) activityManager?.isBackgroundRestricted == true else false)
+                put("dataSaverStatus", dataSaverStatus)
+                put("networkAvailable", capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true)
+                put("networkValidated", capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true)
+                put("alwaysOn", KarinVpnService.alwaysOn)
+                put("lockdown", KarinVpnService.lockdown)
+                put("sdkInt", Build.VERSION.SDK_INT)
+                put("manufacturer", Build.MANUFACTURER.orEmpty())
+            })
+        } catch (ex: Exception) {
+            invoke.reject(ex.message ?: "STABILITY_DIAGNOSTICS_FAILED")
+        }
+    }
+
+    @Command
+    fun openStabilitySettings(invoke: Invoke) {
+        try {
+            val args = invoke.parseArgs(OpenStabilitySettingsArgs::class.java)
+            val packageUri = Uri.parse("package:${activity.packageName}")
+            val intent = when (args.target) {
+                "vpn" -> Intent(Settings.ACTION_VPN_SETTINGS)
+                "notifications" -> Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                    putExtra(Settings.EXTRA_APP_PACKAGE, activity.packageName)
+                }
+                "battery" -> Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                "data_saver" -> Intent(Settings.ACTION_IGNORE_BACKGROUND_DATA_RESTRICTIONS_SETTINGS, packageUri)
+                "background", "app" -> Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, packageUri)
+                else -> throw IllegalArgumentException("STABILITY_SETTINGS_TARGET_INVALID")
+            }
+            val resolvedIntent = if (intent.resolveActivity(activity.packageManager) != null) {
+                intent
+            } else {
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, packageUri)
+            }
+            activity.startActivity(resolvedIntent)
+            invoke.resolve(JSObject().apply { put("opened", true) })
+        } catch (ex: Exception) {
+            invoke.reject(ex.message ?: "STABILITY_SETTINGS_UNAVAILABLE")
         }
     }
 

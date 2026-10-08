@@ -3375,6 +3375,64 @@ fn open_android_vpn_settings() -> Result<bool, String> {
     Ok(false)
 }
 
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn get_android_stability_diagnostics(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let diagnostics = app
+        .karin_vpn()
+        .stability_diagnostics()
+        .map_err(|e| e.to_string())?;
+    serde_json::to_value(diagnostics).map_err(|e| e.to_string())
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn get_android_stability_diagnostics() -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({
+        "vpnPermissionGranted": false,
+        "notificationsGranted": false,
+        "batteryOptimizationExempt": false,
+        "backgroundRestricted": false,
+        "dataSaverStatus": "disabled",
+        "networkAvailable": false,
+        "networkValidated": false,
+        "alwaysOn": false,
+        "lockdown": false,
+        "sdkInt": 0,
+        "manufacturer": ""
+    }))
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn open_android_stability_settings(app: tauri::AppHandle, target: String) -> Result<bool, String> {
+    app.karin_vpn()
+        .open_stability_settings(tauri_plugin_karin_vpn::OpenStabilitySettingsRequest { target })
+        .map(|result| result.opened)
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn open_android_stability_settings(_target: String) -> Result<bool, String> {
+    Ok(false)
+}
+
+#[cfg(target_os = "android")]
+#[tauri::command]
+fn request_android_vpn_permission(app: tauri::AppHandle) -> Result<bool, String> {
+    app.karin_vpn()
+        .prepare()
+        .map(|result| result.prepared)
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn request_android_vpn_permission() -> Result<bool, String> {
+    Ok(false)
+}
+
 #[tauri::command]
 fn get_runtime_info() -> serde_json::Value {
     serde_json::json!({
@@ -3423,7 +3481,10 @@ pub fn run() {
             load_secure_state,
             get_runtime_info,
             get_vpn_runtime_status,
-            open_android_vpn_settings
+            open_android_vpn_settings,
+            get_android_stability_diagnostics,
+            open_android_stability_settings,
+            request_android_vpn_permission
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
