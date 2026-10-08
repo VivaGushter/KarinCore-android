@@ -14,7 +14,7 @@ Full Android ABI packaging.
 
 ### Changed
 - Updated the Android workflow to install all four Rust Android targets and build split APKs instead of an arm64-only artifact.
-- Made Android API 37 installation explicit in CI to match the generated application target SDK.
+- Kept the validated Android SDK/NDK bootstrap while expanding the installed Rust target set.
 - Updated release publication to attach and consistently name all four architecture-specific APKs.
 
 ## [0.1.0-alpha.28] - 2026-10-08

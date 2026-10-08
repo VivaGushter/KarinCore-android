@@ -405,7 +405,7 @@ Android build:
 - Ubuntu runner
 - Java 17
 - Node 22
-- Android API 37
+- Android app target API 37; plugin compile API 36
 - Build Tools 36.0.0
 - NDK 27.0.12077973
 - stable Rust
