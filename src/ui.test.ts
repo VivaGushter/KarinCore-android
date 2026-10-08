@@ -1,5 +1,24 @@
 import { describe, expect, it } from 'vitest';
-import { DISCONNECTED_CORE_LABEL, renderPatchNotes, renderProjectChangelog, resolveAndroidBackAction } from './ui';
+import { DISCONNECTED_CORE_LABEL, renderPatchNotes, renderProjectChangelog, resolveAndroidBackAction, resolveRuntimeInfo } from './ui';
+
+describe('runtime metadata fallback', () => {
+    it('keeps Android layout and the build version when the native command fails', () => {
+        expect(resolveRuntimeInfo(null, 'Mozilla/5.0 (Linux; Android 15) wv', '0.1.0-alpha.31', 'owner/repo')).toEqual({
+            platform: 'android',
+            version: '0.1.0-alpha.31',
+            updateRepo: 'owner/repo',
+        });
+    });
+
+    it('does not allow stale native version metadata to replace the packaged version', () => {
+        expect(resolveRuntimeInfo(
+            { platform: 'desktop', version: '0.0.0', updateRepo: 'owner/repo' },
+            'Mozilla/5.0 (Linux; Android 14) wv',
+            '0.1.0-alpha.31',
+            'owner/repo',
+        )).toMatchObject({ platform: 'android', version: '0.1.0-alpha.31' });
+    });
+});
 
 describe('mobile status presentation', () => {
     it('uses a user-facing idle state instead of leaking a null sentinel', () => {

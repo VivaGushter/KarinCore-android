@@ -4,6 +4,19 @@ All notable Android-port changes are tracked here.
 
 ## Unreleased
 
+## [0.1.0-alpha.31] - 2026-10-08
+
+Android runtime metadata and mobile layout recovery.
+
+### Fixed
+- Prevented a failed `get_runtime_info` call from leaving the Android WebView in desktop mode with the titlebar drawn under the system clock.
+- Replaced the `0.0.0` runtime fallback with the version bundled from `package.json`, preventing a permanent false update notification.
+- Made the Settings page scroll independently of native runtime detection.
+- Rebuilt the About page as one continuous panel instead of two competing desktop columns.
+
+### Tests
+- Added regression coverage for Android WebView detection and packaged-version fallback when native metadata is unavailable or stale.
+
 ## [0.1.0-alpha.30] - 2026-10-08
 
 Android permissions and stability diagnostics.

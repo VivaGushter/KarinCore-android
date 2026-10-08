@@ -392,6 +392,12 @@ button.danger {
     z-index: 9999;
 }
 
+@media (hover: none) and (pointer: coarse) and (max-width: 900px) {
+    .titlebar {
+        display: none !important;
+    }
+}
+
 .titlebar-drag-area {
     flex-grow: 1;
     height: 100%;
@@ -1043,6 +1049,14 @@ button.danger {
     display: flex;
     flex-direction: column;
     gap: 12px;
+    flex: none;
+    min-height: min-content;
+}
+
+#page-settings {
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior-y: contain;
 }
 
 .settings-title {
@@ -1550,11 +1564,16 @@ button.danger {
    ********************************** */
 
 .about-page-container {
-    display: flex;
-    gap: 20px;
+    display: block;
     height: 100%;
     min-height: 0;
     overflow: hidden;
+}
+
+.about-panel {
+    width: 100%;
+    height: 100%;
+    overflow-y: auto;
 }
 
 .about-identity {
@@ -1598,33 +1617,33 @@ button.danger {
 }
 
 #about-info-panel {
-    flex: 1;
-    height: 100%;
+    width: 100%;
+    height: auto;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
+    overflow: visible;
 }
 
 #about-patch-panel {
-    width: 320px;
-    height: 100%;
+    width: 100%;
+    height: auto;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
-    flex-shrink: 0;
+    overflow: visible;
+    margin-top: 22px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border-color);
 }
 
 .tab-scroll-content {
-    flex: 1;
-    overflow-y: auto;
-    padding-right: 10px;
+    overflow: visible;
+    padding-right: 0;
     box-sizing: border-box;
 }
 
 .patch-scroll-area {
-    flex: 1;
-    overflow-y: auto;
-    padding-right: 10px;
+    overflow: visible;
+    padding-right: 0;
     padding-bottom: 30px;
     box-sizing: border-box;
     color: var(--text-dim);
@@ -1994,7 +2013,11 @@ dialog::backdrop {
 
 .platform-android .about-page-container {
     height: auto;
-    flex-direction: column;
+    overflow: visible;
+}
+
+.platform-android .about-panel {
+    height: auto;
     overflow: visible;
 }
 

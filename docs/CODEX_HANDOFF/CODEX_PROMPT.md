@@ -24,14 +24,14 @@
 
 Baseline на момент handoff:
 
-- version `0.1.0-alpha.30`
-- versionCode `30`
-- HEAD tagged as `v0.1.0-alpha.30`
-- release `v0.1.0-alpha.30`
+- version `0.1.0-alpha.31`
+- versionCode `31`
+- HEAD tagged as `v0.1.0-alpha.31`
+- release `v0.1.0-alpha.31`
 - split debug APKs for `arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`
 - Repository checks green
 - Android build green
-- next normal version: `0.1.0-alpha.31`, versionCode 31
+- next normal version: `0.1.0-alpha.32`, versionCode 32
 
 ## 2. Архитектурные правила
 
@@ -290,8 +290,8 @@ Android уже использует единственный VpnService/TUN.
 
 Текущий release baseline:
 
-- `0.1.0-alpha.30`
-- Android versionCode `30`
+- `0.1.0-alpha.31`
+- Android versionCode `31`
 
 Если repo уже обновился, определить следующий номер из актуального `VERSION`.
 

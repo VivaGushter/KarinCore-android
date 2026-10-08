@@ -2,6 +2,26 @@ import { escapeHtml } from './security';
 
 export const DISCONNECTED_CORE_LABEL = 'idle';
 
+export interface ResolvedRuntimeInfo {
+    platform: 'android' | 'desktop';
+    version: string;
+    updateRepo: string;
+}
+
+export function resolveRuntimeInfo(
+    nativeInfo: Partial<ResolvedRuntimeInfo> | null,
+    userAgent: string,
+    buildVersion: string,
+    defaultRepo: string,
+): ResolvedRuntimeInfo {
+    const androidWebView = /\bAndroid\b/i.test(userAgent);
+    return {
+        platform: androidWebView || nativeInfo?.platform === 'android' ? 'android' : 'desktop',
+        version: buildVersion,
+        updateRepo: nativeInfo?.updateRepo || defaultRepo,
+    };
+}
+
 export type AndroidBackAction = 'close-dialog' | 'close-profiles' | 'close-menu' | 'go-main' | 'arm-exit' | 'exit';
 
 export function resolveAndroidBackAction(state: {

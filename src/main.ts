@@ -1,9 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import { exit, onBackButtonPress } from "@tauri-apps/api/app";
 import projectChangelog from "../CHANGELOG.md?raw";
+import packageMetadata from "../package.json";
 import { translations } from "./i18n";
 import { escapeHtml } from "./security";
-import { DISCONNECTED_CORE_LABEL, renderProjectChangelog, resolveAndroidBackAction } from "./ui";
+import { DISCONNECTED_CORE_LABEL, renderProjectChangelog, resolveAndroidBackAction, resolveRuntimeInfo } from "./ui";
 
 // **********************************
 // TYPES & INTERFACES
@@ -113,7 +114,9 @@ function isRoutingMap(value: unknown): value is RoutingMap {
     );
 }
 
-let runtimeInfo: RuntimeInfo = { platform: 'desktop', version: '0.0.0', updateRepo: PROJECT_REPO };
+const BUILD_VERSION = packageMetadata.version;
+let runtimeInfo: RuntimeInfo = resolveRuntimeInfo(null, navigator.userAgent, BUILD_VERSION, PROJECT_REPO);
+document.documentElement.classList.toggle('platform-android', runtimeInfo.platform === 'android');
 let nativeVpnRunning = false;
 let nativeVpnStarting = false;
 let nativeVpnCoreRunning = false;
@@ -2176,10 +2179,11 @@ function startAndroidVpnStateMonitor() {
 
 async function init() {
     try {
-        runtimeInfo = await invoke<RuntimeInfo>('get_runtime_info');
-        runtimeInfo.updateRepo = PROJECT_REPO;
+        const nativeRuntimeInfo = await invoke<RuntimeInfo>('get_runtime_info');
+        runtimeInfo = resolveRuntimeInfo(nativeRuntimeInfo, navigator.userAgent, BUILD_VERSION, PROJECT_REPO);
     } catch (error) {
         console.debug('Runtime metadata unavailable:', error);
+        runtimeInfo = resolveRuntimeInfo(null, navigator.userAgent, BUILD_VERSION, PROJECT_REPO);
     }
 
     await loadSensitiveState();

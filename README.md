@@ -2,7 +2,7 @@
   <img src="src-tauri/icons/icon.png" alt="KarinCore" width="160"/>
   <h1>KarinCore Android</h1>
   <p>Android port of KarinCore powered by Tauri 2, Rust, Android VpnService and Xray-core.</p>
-  <p><strong>Current version: 0.1.0-alpha.30</strong></p>
+  <p><strong>Current version: 0.1.0-alpha.31</strong></p>
   <p><a href="README-ru.md">Русская версия</a></p>
 </div>
 
@@ -12,9 +12,9 @@ This repository is an experimental Android port of [detestern/KarinCore](https:/
 
 The shared KarinCore TypeScript UI and Rust parsing/routing logic are retained. Linux-specific tunnel setup is replaced on Android by a native `VpnService` bridge and Xray TUN integration.
 
-Version `0.1.0-alpha.30` is distributed as separate debug APKs for `arm64-v8a`, `armeabi-v7a`, `x86` and `x86_64` through GitHub prereleases. Real-device runtime validation is the next verification step.
+Version `0.1.0-alpha.31` is distributed as separate debug APKs for `arm64-v8a`, `armeabi-v7a`, `x86` and `x86_64` through GitHub prereleases. Real-device runtime validation is the next verification step.
 
-## Implemented through 0.1.0-alpha.30
+## Implemented through 0.1.0-alpha.31
 
 - Tauri 2 mobile entry point.
 - Native Android `VpnService`.
@@ -37,6 +37,7 @@ Version `0.1.0-alpha.30` is distributed as separate debug APKs for `arm64-v8a`, 
 - Android-specific mobile layout with desktop titlebar removed, safe-area handling and narrow-screen routing layout.
 - The mobile interface keeps the configuration drawer control above the system navigation area, adapts forms, profile cards, logs and the About page to narrow or short screens, and shows an explicit idle core state instead of a technical `null` value.
 - Android routing and settings use separated cards and one page-level scroll area; release history is rendered as distinct version blocks with readable change items.
+- Android layout and packaged version detection no longer depend on a successful native runtime-metadata call. The desktop titlebar cannot cover the Android status bar, Settings remains scrollable, and About uses one continuous panel on mobile and desktop.
 - The Android system Back button closes the active dialog or drawer first, returns every secondary section to the main screen, and requires a second press on the main screen to exit.
 - The About page embeds this repository's own `CHANGELOG.md`, so its release history follows KarinCore Android releases instead of inherited upstream notes.
 - A compact Android home-screen widget connects or disconnects the last successfully used VPN profile with one tap. Its power icon is gray while disconnected, pink while connecting and green while connected.
