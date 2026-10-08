@@ -11,8 +11,16 @@ interface ProxyLink { id: string; url: string; pinned: boolean; groupId: string 
 interface DnsConfig { type: string, url: string, ip: string }
 interface RouteProfile { id: string, name: string, defaultOutbound: string, rules: any, domDns?: DnsConfig, remDns?: DnsConfig, zonePriority?: ZoneKey[] }
 interface RoutingRule { type: string; value: string; }
+interface ProviderRoutingRule { type: string; outboundTag: ZoneKey; [key: string]: unknown; }
 type ZoneKey = 'direct' | 'proxy' | 'block';
-type RoutingMap = Record<ZoneKey, RoutingRule[]>;
+interface RoutingMap {
+    direct: RoutingRule[];
+    proxy: RoutingRule[];
+    block: RoutingRule[];
+    _providerRules?: ProviderRoutingRule[];
+    _domainStrategy?: string;
+    _domainMatcher?: string;
+}
 type AppRoutingMode = 'all' | 'allowlist' | 'denylist';
 interface InstalledApp { label: string; packageName: string; system: boolean; }
 interface RuntimeInfo { platform: 'android' | 'desktop'; version: string; updateRepo: string; }
@@ -267,23 +275,30 @@ const langNames: Record<string, string> = {
 // **********************************
 // DRAG AND DROP (ROUTING PRIORITY)
 // **********************************
+function useCompactRoutingLayout() {
+    return window.matchMedia('(pointer: coarse)').matches || window.innerWidth <= 720;
+}
+
 function applyColumnOrder() {
     const container = document.getElementById('routing-grid');
     if (!container) return;
+    const compact = useCompactRoutingLayout();
+    container.classList.toggle('routing-grid-compact', compact);
     
     container.querySelectorAll('.routing-arrow').forEach(el => el.remove());
     
     zonePriority.forEach((zone, index) => {
         const col = document.querySelector(`.route-column[data-zone="${zone}"]`) as HTMLElement;
         if (col) {
-            col.style.flex = "1";
-            col.style.minWidth = "0";
+            col.style.flex = compact ? '0 0 auto' : '1';
+            col.style.minWidth = compact ? '100%' : '0';
+            col.style.width = compact ? '100%' : '';
             container.appendChild(col); 
             
             if (index < zonePriority.length - 1) {
                 const arrow = document.createElement('div');
                 arrow.className = 'routing-arrow';
-                arrow.innerHTML = '➔';
+                arrow.textContent = compact ? '↓' : '➔';
                 arrow.style.cssText = 'display: flex; align-items: center; justify-content: center; color: var(--accent); font-weight: bold; font-size: 20px; opacity: 0.5; padding: 0 5px; user-select: none; pointer-events: none;';
                 container.appendChild(arrow);
             }
@@ -313,10 +328,11 @@ function applyColumnOrderWithAnimation() {
         
         if (first && last) {
             const deltaX = first.left - last.left;
-            if (deltaX !== 0) {
+            const deltaY = first.top - last.top;
+            if (deltaX !== 0 || deltaY !== 0) {
                 // Телепортируем на старое место без анимации
                 col.style.transition = 'none';
-                col.style.transform = `translateX(${deltaX}px)`;
+                col.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
                 
                 // Форсируем перерисовку кадра
                 col.getBoundingClientRect();
@@ -324,7 +340,7 @@ function applyColumnOrderWithAnimation() {
                 // Плавно едем на новое место
                 requestAnimationFrame(() => {
                     col.style.transition = 'transform 0.4s cubic-bezier(0.25, 1, 0.5, 1)';
-                    col.style.transform = 'translateX(0)';
+                    col.style.transform = 'translate(0, 0)';
                 });
             }
         }
@@ -370,10 +386,11 @@ function initDragAndDrop() {
         if (!draggedZone) return;
 
         const rect = container.getBoundingClientRect();
-        const mouseX = e.clientX - rect.left;
-        const slotWidth = rect.width / 3;
-        
-        let hoverIndex = Math.floor(mouseX / slotWidth);
+        const compact = useCompactRoutingLayout();
+        const pointerOffset = compact ? e.clientY - rect.top : e.clientX - rect.left;
+        const slotSize = (compact ? rect.height : rect.width) / 3;
+
+        let hoverIndex = Math.floor(pointerOffset / slotSize);
         hoverIndex = Math.max(0, Math.min(2, hoverIndex)); // Ограничиваем от 0 до 2
         
         const fromIndex = zonePriority.indexOf(draggedZone);
@@ -410,9 +427,10 @@ function initDragAndDrop() {
         });
 
         const rect = container.getBoundingClientRect();
-        const mouseX = e.clientX - rect.left;
-        const slotWidth = rect.width / 3;
-        let hoverIndex = Math.floor(mouseX / slotWidth);
+        const compact = useCompactRoutingLayout();
+        const pointerOffset = compact ? e.clientY - rect.top : e.clientX - rect.left;
+        const slotSize = (compact ? rect.height : rect.width) / 3;
+        let hoverIndex = Math.floor(pointerOffset / slotSize);
         hoverIndex = Math.max(0, Math.min(2, hoverIndex));
         
         const fromIndex = zonePriority.indexOf(draggedZone);
@@ -1247,6 +1265,7 @@ function renderLinks() {
               <div style="display: flex; align-items: center; gap: 8px;">
                   ${isEditMode ? `<input type="checkbox" class="edit-checkbox" data-group-id="${safeGroupId}" ${selectedGroups.has(g.id) ? 'checked' : ''}>` : ''}
                   ${g.pinned ? pinIcon : ''} <span>${escapeHtml(g.name)}</span> <span style="font-size:12px; color:var(--text-dim);">(${gLinks.length})</span>
+                  ${g.providerRouting ? `<span class="provider-routing-badge" title="${escapeHtml(t('subscription_routing_active'))}">${escapeHtml(t('subscription_routing_badge'))}</span>` : ''}
               </div>
               <div style="display:flex; gap:10px; align-items:center;">
                   ${g.sourceUrl && !isEditMode ? `
@@ -1275,6 +1294,7 @@ function renderLinks() {
     appLinks.filter(l => l.groupId === null && !l.pinned).forEach(l => html += renderLinkItem(l));
   
     linksContainer.innerHTML = html;
+    renderProviderRoutingNotice();
     
     document.querySelectorAll('.edit-checkbox[data-group-id]').forEach(cb => {
         cb.addEventListener('click', event => event.stopPropagation());
@@ -1290,6 +1310,27 @@ function renderLinks() {
             renderLinks();
         });
     });
+}
+
+function renderProviderRoutingNotice() {
+    const notice = document.getElementById('provider-routing-notice');
+    if (!notice) return;
+
+    const selectedLink = appLinks.find(link => link.url === selectedProfileUrl);
+    const group = selectedLink?.groupId
+        ? appGroups.find(item => item.id === selectedLink.groupId)
+        : undefined;
+    const rules = group?.providerRouting?._providerRules;
+    const ruleCount = Array.isArray(rules) ? rules.length : 0;
+
+    if (!group?.providerRouting || ruleCount === 0) {
+        notice.hidden = true;
+        notice.textContent = '';
+        return;
+    }
+
+    notice.hidden = false;
+    notice.textContent = `${t('subscription_routing_active')} · ${ruleCount} ${t('subscription_routing_rules')}`;
 }
 
 function renderRouting() { 
@@ -1319,7 +1360,8 @@ function renderRouting() {
             }
         }
     }); 
-    localStorage.setItem('karin_routing', JSON.stringify(routingState)); 
+    localStorage.setItem('karin_routing', JSON.stringify(routingState));
+    renderProviderRoutingNotice();
 }
 
 function renderRoutingProfiles() {
@@ -1813,6 +1855,7 @@ async function init() {
     // Инициализация Drag and Drop для колонок маршрутизации
     initDragAndDrop();
     applyColumnOrder();
+    window.addEventListener('resize', applyColumnOrder);
 
     renderLinks(); 
     updateStatusUI(); 

@@ -1,6 +1,6 @@
 # Phase 3 status
 
-Current version: `0.1.0-alpha.23`
+Current version: `0.1.0-alpha.24`
 
 ## Completed
 
@@ -17,6 +17,7 @@ Current version: `0.1.0-alpha.23`
 11. Android Always-on VPN restart persistence and system lockdown settings integration.
 12. CI-validated arm64 debug APK pipeline.
 13. Built-in VPN self-test for native service/Xray/TUN/proxy-path/external-IP validation.
+14. V2RayTun subscription routing import for both object and top-level array payloads, with an in-app active-route indicator.
 
 ## Planned
 

@@ -799,6 +799,59 @@ button.danger {
     gap: 12px;
 }
 
+#routing-grid.routing-grid-compact {
+    flex-direction: column !important;
+    gap: 10px !important;
+}
+
+#routing-grid.routing-grid-compact .route-column {
+    width: 100% !important;
+    min-width: 100% !important;
+    flex: none !important;
+}
+
+#routing-grid.routing-grid-compact .routing-arrow {
+    min-height: 20px;
+    transform: none;
+}
+
+#routing-grid.routing-grid-compact .route-column.drag-over-left {
+    transform: translateY(12px) !important;
+    border-top: 2px solid var(--accent) !important;
+    border-left: 1px solid var(--border-color) !important;
+}
+
+#routing-grid.routing-grid-compact .route-column.drag-over-right {
+    transform: translateY(-12px) !important;
+    border-right: 1px solid var(--border-color) !important;
+    border-bottom: 2px solid var(--accent) !important;
+}
+
+.provider-routing-notice {
+    margin-bottom: 16px;
+    padding: 11px 13px;
+    border: 1px solid var(--success);
+    border-radius: 9px;
+    background: var(--base-crust);
+    color: var(--success);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.provider-routing-notice[hidden] {
+    display: none;
+}
+
+.provider-routing-badge {
+    padding: 2px 7px;
+    border: 1px solid var(--success);
+    border-radius: 999px;
+    color: var(--success);
+    font-size: 10px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
 .routing-option-card {
     flex-shrink: 0;
 }
@@ -1587,7 +1640,7 @@ dialog::backdrop {
 
 .platform-android #routing-grid .routing-arrow {
     min-height: 20px;
-    transform: rotate(90deg);
+    transform: none;
 }
 
 .platform-android .route-column {

@@ -4,6 +4,19 @@ All notable Android-port changes are tracked here.
 
 ## Unreleased
 
+## [0.1.0-alpha.24] - 2026-10-08
+
+V2RayTun routing compatibility and Android route-priority layout repair.
+
+### Added
+- Added an active provider-route badge to subscription groups and a rule-count notice to the Routing page.
+- Added a regression test for the five-rule V2RayTun routing array used by subscriptions.
+
+### Fixed
+- Accepted V2RayTun `routing` payloads supplied as a top-level JSON array in addition to the `{"rules": [...]}` form.
+- Preserved and applied provider rule order and fields, including a terminal `proxy` rule with `port: "0-65535"`.
+- Forced coarse-pointer and narrow-screen route priority cards into a full-width vertical flow, with correctly positioned arrows and vertical drag ordering.
+
 ## [0.1.0-alpha.23] - 2026-10-07
 
 Mobile routing, settings and release-history layout repair.

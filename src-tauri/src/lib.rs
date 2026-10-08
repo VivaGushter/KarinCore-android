@@ -479,7 +479,7 @@ fn body_routing_header(text: &str) -> Option<&str> {
 fn parse_v2raytun_routing_header(header: &str) -> Result<Value, String> {
     const MAX_ROUTING_BYTES: usize = 1024 * 1024;
     let value = header.trim().trim_matches('"').trim();
-    let json_text = if value.starts_with('{') {
+    let json_text = if value.starts_with('{') || value.starts_with('[') {
         value.to_string()
     } else {
         let encoded = value.strip_prefix("base64:").unwrap_or(value);
@@ -508,7 +508,9 @@ fn convert_routing_to_zones(
     outbounds: &[Value],
     preserve_provider_config: bool,
 ) -> Option<Value> {
-    let rules = routing.get("rules").and_then(|v| v.as_array())?;
+    let rules = routing
+        .as_array()
+        .or_else(|| routing.get("rules").and_then(Value::as_array))?;
     let mut zones = serde_json::Map::new();
     zones.insert("direct".to_string(), json!([]));
     zones.insert("proxy".to_string(), json!([]));
@@ -3708,6 +3710,70 @@ mod tests {
         );
         assert_eq!(runtime["domainStrategy"], "AsIs");
         assert_eq!(runtime["domainMatcher"], "hybrid");
+    }
+
+    #[test]
+    fn subscription_parser_applies_v2raytun_top_level_routing_array() {
+        let routing = json!([
+            {
+                "ip": ["geoip:private"],
+                "outboundTag": "direct"
+            },
+            {
+                "domain": ["geosite:private"],
+                "outboundTag": "direct"
+            },
+            {
+                "domain": [
+                    "geosite:category-ru",
+                    "regexp:.*\\.ru$",
+                    "regexp:.*\\.su$",
+                    "regexp:.*\\.xn--p1ai$"
+                ],
+                "outboundTag": "direct"
+            },
+            {
+                "ip": ["geoip:ru"],
+                "outboundTag": "direct"
+            },
+            {
+                "outboundTag": "proxy",
+                "port": "0-65535"
+            }
+        ]);
+        let header = general_purpose::STANDARD.encode(routing.to_string());
+        let body = "vless://id@192.0.2.1:443?security=tls#one";
+
+        let parsed = parse_subscription_content_with_routing(body, Some(&header)).unwrap();
+        assert!(parsed.routing_override);
+        let imported = parsed.imported_routing.unwrap();
+        assert_eq!(imported["_providerRules"].as_array().unwrap().len(), 5);
+        assert_eq!(
+            imported["_providerRules"][4],
+            json!({
+                "type": "field",
+                "outboundTag": "proxy",
+                "port": "0-65535"
+            })
+        );
+
+        let xray_rules = build_xray_rules(
+            &imported,
+            vec!["direct".into(), "proxy".into(), "block".into()],
+        );
+        let expected = routing
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|rule| {
+                let mut rule = rule.clone();
+                rule.as_object_mut()
+                    .unwrap()
+                    .insert("type".into(), json!("field"));
+                rule
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(xray_rules, Value::Array(expected));
     }
 
     #[test]
